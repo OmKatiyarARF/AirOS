@@ -1,5 +1,6 @@
-// Place this file at the ROOT of the AirOS repo
+// Place this file at the ROOT of your repo as "Jenkinsfile"
 // Jenkins will auto-detect it via Multibranch Pipeline
+// This generic template works for any repo — customize the deploy stage as needed
 
 pipeline {
     agent any
@@ -12,25 +13,31 @@ pipeline {
     }
 
     environment {
-        PROD_SERVER_USER = "${env.PROD_SERVER_USER}"
-        PROD_SERVER_HOST = "${env.PROD_SERVER_HOST}"
+        // These are injected from repos.json by the init script
+        REPO_NAME = "${env.REPO_NAME}"
         DEPLOY_PATH = "${env.DEPLOY_PATH}"
+        DEPLOY_TYPE = "${env.DEPLOY_TYPE}"
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo "Building branch: ${env.BRANCH_NAME}"
+                echo "Building repo: ${REPO_NAME}"
+                echo "Branch: ${env.BRANCH_NAME}"
                 echo "Commit: ${env.GIT_COMMIT}"
-                echo "Watching repo: ${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}"
                 checkout scm
             }
         }
 
-        stage('Lint & Test') {
+        stage('Build & Test') {
             steps {
-                echo 'Add your test commands here'
-                // sh 'npm install && npm test'
+                echo '=== Add your build and test commands here ==='
+                echo 'Examples:'
+                echo '  - sh "npm install && npm test"   (Node.js)'
+                echo '  - sh "pip install -r requirements.txt && pytest"  (Python)'
+                echo '  - sh "mvn clean test"   (Java/Maven)'
+                // sh 'npm install'
+                // sh 'npm test'
             }
         }
 
@@ -39,23 +46,44 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sh '''
-                    set -e
-                    echo "Deploying to ${DEPLOY_PATH}..."
-                    cd ${DEPLOY_PATH}
-                    git fetch origin main
-                    git reset --hard origin/main
-                    cd deploy
-                    docker compose -f keycloak.yaml up -d --build
-                    docker system prune -f
-                '''
+                script {
+                    if (DEPLOY_TYPE == 'local') {
+                        sh '''
+                            set -e
+                            echo "Deploying ${REPO_NAME} locally at ${DEPLOY_PATH}..."
+                            cd ${DEPLOY_PATH}
+                            git fetch origin main
+                            git reset --hard origin/main
+                            echo "=== Add your deploy commands below ==="
+                            echo "Example for AirOS:"
+                            echo "  cd deploy && docker compose -f keycloak.yaml up -d --build"
+                            echo "Example for central_auth_framework:"
+                            echo "  docker compose up -d --build"
+                            echo "Example for Node.js app:"
+                            echo "  npm install --production && pm2 restart app"
+                        '''
+                    } else {
+                        sh '''
+                            set -e
+                            echo "Deploying ${REPO_NAME} remotely to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}..."
+                            ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ${DEPLOY_USER}@${DEPLOY_HOST} << 'EOF'
+                                cd ${DEPLOY_PATH}
+                                git fetch origin main
+                                git reset --hard origin/main
+                                echo "=== Add your remote deploy commands here ==="
+                                docker compose up -d --build
+                                docker system prune -f
+                            EOF
+                        '''
+                    }
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment of ${env.BRANCH_NAME} succeeded"
+            echo "✅ Deployment of ${REPO_NAME} (${env.BRANCH_NAME}) succeeded"
         }
         failure {
             echo "❌ Build failed — check logs above"

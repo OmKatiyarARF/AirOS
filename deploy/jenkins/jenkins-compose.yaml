@@ -1,29 +1,24 @@
 services:
   jenkins:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: jenkins-custom
     container_name: jenkins
     restart: unless-stopped
     ports:
-      - "8082:8080"      # Jenkins UI (proxied via nginx on 80)
+      - "8084:8080"      # Jenkins UI (direct access, proxied via nginx on 80)
       - "50000:50000"    # Jenkins agent port
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
       - ./casc:/var/jenkins_home/casc:ro
+      - ./repos.json:/var/jenkins_home/repos.json:ro
+      - /home/ec2-user:/home/ec2-user:ro   # Access repos on this server
+      - /home/ec2-user/.ssh:/var/jenkins_home/.ssh:ro  # SSH keys for remote deploys
     environment:
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc/jenkins.yaml
       - JENKINS_ADMIN_USER=${JENKINS_ADMIN_USER}
       - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
-      - GITHUB_REPO_OWNER=${GITHUB_REPO_OWNER}
-      - GITHUB_REPO_NAME=${GITHUB_REPO_NAME}
-      - PROD_SERVER_HOST=${PROD_SERVER_HOST}
-      - PROD_SERVER_USER=${PROD_SERVER_USER}
-      - PROD_SSH_PRIVATE_KEY=${PROD_SSH_PRIVATE_KEY}
-      - DEPLOY_PATH=${DEPLOY_PATH}
     networks:
       - jenkins-net
     healthcheck:

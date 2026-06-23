@@ -20,3 +20,7 @@ RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
 
 # Copy JCasC config into image (will be available at startup)
 COPY casc/ /var/jenkins_home/casc/
+
+# Copy init script that reads repos.json and creates pipeline jobs
+# Jenkins copies ref/init.groovy.d/* to $JENKINS_HOME/init.groovy.d/ on startup
+COPY init.groovy.d/ /usr/share/jenkins/ref/init.groovy.d/

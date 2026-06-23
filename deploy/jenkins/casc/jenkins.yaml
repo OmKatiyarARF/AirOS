@@ -21,8 +21,8 @@ jenkins:
 # Where Jenkins writes build data on disk
 unclassified:
   location:
-    url: "http://jenkins.airos.in/"
-    adminAddress: "om.katiyar@airawat.org"
+    url: "http://13.205.13.220/"
+    adminAddress: "admin@airawat.org"
 
   timestamper:
     allPipelines: true
@@ -42,48 +42,6 @@ credentials:
               username: "${GITHUB_USER}"
               password: "${GITHUB_TOKEN}"
               description: "GitHub username + PAT"
-
-          # SSH key for deploying to production server
-          # NOTE: The private key file must exist inside the container at the path below.
-          # Mount it via docker-compose volumes or copy it during build.
-          - basicSSHUserPrivateKey:
-              scope: GLOBAL
-              id: "prod-server-ssh"
-              username: "${PROD_SERVER_USER}"
-              description: "SSH key for production server"
-              privateKeySource:
-                directEntry:
-                  privateKey: "${PROD_SSH_PRIVATE_KEY}"
-
-# Job definitions (optional — can also use Multibranch Pipeline from UI)
-jobs:
-   - script: >
-      multibranchPipelineJob('AirOS-Platform') {
-        branchSources {
-          github {
-            id('airos-platform')
-            repoOwner('${GITHUB_REPO_OWNER}')
-            repository('${GITHUB_REPO_NAME}')
-            credentialsId('github-creds')
-            configuredByUrl(false)
-          }
-        }
-        factory {
-          workflowBranchProjectFactory {
-            scriptPath('Jenkinsfile')
-          }
-        }
-        orphanedItemStrategy {
-          discardOldItems {
-            numToKeep(20)
-          }
-        }
-        triggers {
-          periodicFolderTrigger {
-            interval('1d')
-          }
-        }
-      }
 
 # Security: disable old protocols
 security:

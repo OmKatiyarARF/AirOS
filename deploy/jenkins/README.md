@@ -1,119 +1,119 @@
 # AirOS Jenkins Setup
 
-Jenkins CI/CD server for the AirOS platform. Runs in Docker on a dedicated
-Jenkins server and deploys to the production server via SSH.
+Jenkins CI/CD server for the Airawat platform. Runs in Docker and watches multiple GitHub repos — deploys them on the same server or remote servers via SSH.
 
 ## Folder Structure
 
 ```
 jenkins/
-├── jenkins-compose.yaml    # Docker Compose for Jenkins + nginx
-├── Dockerfile              # Custom Jenkins image with plugins baked in
-├── plugins.txt             # List of Jenkins plugins to install
-├── nginx.conf              # Reverse proxy config (port 80 → Jenkins 8080)
-├── .env                    # Secrets (gitignored)
-├── .env.example            # Template for .env
-├── Jenkinsfile.sample      # Sample pipeline to copy to repo root
-└── casc/
-    └── jenkins.yaml        # JCasC config (admin user, credentials, jobs)
+├── jenkins-compose.yaml     # Docker Compose for Jenkins + nginx
+├── Dockerfile               # Custom Jenkins image with plugins + init script
+├── plugins.txt              # List of Jenkins plugins to install
+├── nginx.conf               # Reverse proxy config (port 80 → Jenkins 8080)
+├── .env                     # Secrets (Jenkins password, GitHub token) — NEVER COMMIT
+├── repos.json               # YOUR list of repos to watch — edit this often
+├── jenkins.sample           # Sample Jenkinsfile template for new repos
+├── casc/
+│   └── jenkins.yaml         # JCasC config (admin user, credentials)
+└── init.groovy.d/
+    └── create-jobs-from-json.groovy  # Script that reads repos.json and creates pipeline jobs
 ```
 
-## First-Time Setup
+## How It Works
 
-### On the Jenkins server
+1. **On startup**, Jenkins runs `init.groovy.d/create-jobs-from-json.groovy`
+2. That script reads `repos.json` and creates one Multibranch Pipeline job per repo
+3. Each job watches its GitHub repo for pushes
+4. When code is pushed, Jenkins runs the repo's `Jenkinsfile` (build → test → deploy)
+5. Deploy happens locally (same server) or remotely (via SSH to another server)
 
-1. Clone the AirOS repo:
-   ```bash
-   git clone https://github.com/OmKatiyarARF/AirOS.git
-   cd AirOS/deploy/jenkins
-   ```
+## Setup
 
-2. Copy `.env.example` to `.env` and fill in real values:
-   ```bash
-   cp .env.example .env
-   nano .env
-   ```
-
-3. Generate SSH key for deploying to production:
-   ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/jenkins_prod -C "jenkins@airos"
-   ssh-copy-id -i ~/.ssh/jenkins_prod.pub om-katiyar@<PROD_SERVER_IP>
-   ```
-   Then paste the private key contents into `PROD_SSH_PRIVATE_KEY` in `.env`.
-
-4. Build and start:
-   ```bash
-   docker compose -f jenkins-compose.yaml up -d --build
-   ```
-
-5. Access Jenkins at `http://<jenkins-server-ip>` (port 80, via nginx).
-
-### Add GitHub Webhook
-
-In your GitHub repo → Settings → Webhooks → Add webhook:
-- Payload URL: `http://<jenkins-server-ip>/github-webhook/`
-- Content type: `application/json`
-- Trigger: `Just the push event`
-
-### Add Jenkinsfile to your repo
-
-Copy `Jenkinsfile.sample` to the root of the AirOS repo as `Jenkinsfile`:
-```bash
-cp deploy/jenkins/Jenkinsfile.sample Jenkinsfile
-```
-Commit and push. Jenkins will pick it up automatically.
-
-## How it works
-
-1. Developer pushes code to GitHub `main` branch
-2. GitHub webhook hits Jenkins
-3. Jenkins runs the pipeline defined in `Jenkinsfile`
-4. Jenkins SSHs into production server and pulls + restarts services
-5. Team can view all builds in the Jenkins UI
-
-## Updating Jenkins config
-
-Edit `casc/jenkins.yaml` and restart:
-```bash
-docker compose -f jenkins-compose.yaml restart jenkins
-```
-
-JCasC will re-apply the config from scratch — no UI clicks needed.
-
-## Configuring Which GitHub Repo Jenkins Watches
-
-Jenkins watches whichever GitHub repo you specify in `.env`. You can change it anytime by editing just **2 variables** in `.env`:
+### 1. Create `.env`
 
 ```bash
-# Jenkins will watch this repo for pushes
-GITHUB_REPO_OWNER=OmKatiyarARF       # Your GitHub username or org
-GITHUB_REPO_NAME=AirOS               # The repository name
+cp .env.example .env
+nano .env
 ```
 
-No need to edit any code files — just change these 2 lines in `.env` and restart:
+Fill in:
+| Variable | What to put |
+|---|---|
+| `JENKINS_ADMIN_USER` | Jenkins login username |
+| `JENKINS_ADMIN_PASSWORD` | Jenkins login password |
+| `GITHUB_USER` | GitHub account or org that owns the repos |
+| `GITHUB_TOKEN` | GitHub Personal Access Token (scopes: `repo`, `admin:repo_hook`) |
+
+### 2. Edit `repos.json` — List repos to watch
+
+```json
+[
+  {
+    "name": "AirOS",
+    "git_url": "https://github.com/airawatiitk/AirOS.git",
+    "deploy": {
+      "type": "local",
+      "path": "/home/ec2-user/AirOS"
+    }
+  },
+  {
+    "name": "central-auth-framework",
+    "git_url": "https://github.com/airawatiitk/central-auth-framework.git",
+    "deploy": {
+      "type": "local",
+      "path": "/home/ec2-user/central-auth-framework"
+    }
+  },
+  {
+    "name": "remote-api",
+    "git_url": "https://github.com/airawatiitk/remote-api.git",
+    "deploy": {
+      "type": "remote",
+      "host": "13.205.13.220",
+      "user": "ubuntu",
+      "path": "/home/ubuntu/remote-api",
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/key.pem"}
+    }
+  }
+]
+```
+
+### 3. Build and start Jenkins
 
 ```bash
-docker compose -f jenkins-compose.yaml restart jenkins
+cd AirOS/deploy/jenkins
+docker compose -f jenkins-compose.yaml up -d --build
 ```
 
-### All configurable variables in `.env`
+Wait 2 minutes, then open `http://13.205.13.220` (port 80).
 
-| Variable | What it controls | Where it's used |
-|---|---|---|
-| `JENKINS_ADMIN_USER` | Jenkins admin login username | JCasC config |
-| `JENKINS_ADMIN_PASSWORD` | Jenkins admin password | JCasC config |
-| `GITHUB_USER` | Your GitHub username for API auth | JCasC credentials |
-| `GITHUB_TOKEN` | GitHub Personal Access Token with `repo` + `admin:repo_hook` scopes | JCasC credentials |
-| `GITHUB_REPO_OWNER` | **Which GitHub account/org owns the repo to watch** | JCasC job definition |
-| `GITHUB_REPO_NAME` | **Which GitHub repo to watch** | JCasC job definition |
-| `PROD_SERVER_HOST` | Production server IP (only if deploying to separate server) | Pipeline env var |
-| `PROD_SERVER_USER` | SSH username on production server | Pipeline env var |
-| `DEPLOY_PATH` | Absolute path where code lives on this server | Pipeline script |
-| `PROD_SSH_PRIVATE_KEY` | SSH private key for deployment | JCasC credentials |
+### 4. Add GitHub Webhooks
+
+For each repo, go to GitHub → Settings → Webhooks → Add webhook:
+- **Payload URL**: `http://13.205.13.220/github-webhook/`
+- **Content type**: `application/json`
+- **Trigger**: `Just the push event`
+
+### 5. Add a Jenkinsfile to each repo
+
+Copy `jenkins.sample` into each repo as `Jenkinsfile` and customize the deploy stage.
+
+## Adding a New Repo
+
+1. Add the repo entry to `repos.json`
+2. Clone the repo on the target server (if local: `cd /home/ec2-user && git clone <URL>`)
+3. Add a `Jenkinsfile` to the repo root
+4. Add GitHub webhook for the repo
+5. Restart Jenkins: `docker compose -f jenkins-compose.yaml restart jenkins`
+
+## Removing a Repo
+
+Delete its entry from `repos.json` and restart Jenkins. The pipeline job will be removed.
 
 ## Important Notes
 
 - **Never commit `.env`** — it contains secrets
-- **JCasC overrides manual UI changes** — always edit `casc/jenkins.yaml`,
-  not the UI, otherwise changes will be lost on restart
-- **Production server must allow SSH from Jenkins server's IP**
+- **Never commit `repos.json`** if it contains internal paths
+- **Add a Jenkinsfile to each repo** — Jenkins needs it to know how to build
+- **Each team owns their repo's Jenkinsfile** — they decide what build/test/deploy commands to run
+- **To pause CI for a repo**, add `"disabled": true` to its entry in `repos.json`
