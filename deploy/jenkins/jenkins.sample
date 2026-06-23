@@ -1,0 +1,67 @@
+// Place this file at the ROOT of the AirOS repo
+// Jenkins will auto-detect it via Multibranch Pipeline
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+        timeout(time: 20, unit: 'MINUTES')
+    }
+
+    environment {
+        PROD_SERVER_USER = "${env.PROD_SERVER_USER}"
+        PROD_SERVER_HOST = "${env.PROD_SERVER_HOST}"
+        DEPLOY_PATH = "${env.DEPLOY_PATH}"
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo "Building branch: ${env.BRANCH_NAME}"
+                echo "Commit: ${env.GIT_COMMIT}"
+                echo "Watching repo: ${env.GITHUB_REPO_OWNER}/${env.GITHUB_REPO_NAME}"
+                checkout scm
+            }
+        }
+
+        stage('Lint & Test') {
+            steps {
+                echo 'Add your test commands here'
+                // sh 'npm install && npm test'
+            }
+        }
+
+        stage('Deploy to Production') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    set -e
+                    echo "Deploying to ${DEPLOY_PATH}..."
+                    cd ${DEPLOY_PATH}
+                    git fetch origin main
+                    git reset --hard origin/main
+                    cd deploy
+                    docker compose -f keycloak.yaml up -d --build
+                    docker system prune -f
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment of ${env.BRANCH_NAME} succeeded"
+        }
+        failure {
+            echo "❌ Build failed — check logs above"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

@@ -1,0 +1,38 @@
+# Configuration as Code
+configuration-as-code
+
+# Git & GitHub
+git
+github
+github-branch-source
+
+# Pipeline
+workflow-aggregator
+pipeline-stage-view
+pipeline-github-lib
+
+# UI
+blueocean
+
+# Credentials
+credentials
+credentials-binding
+ssh-credentials
+plain-credentials
+
+# SSH for deployments
+ssh-agent
+ssh-slaves
+
+# Docker
+docker-workflow
+docker-plugin
+
+# Utility
+ws-cleanup
+timestamper
+build-timeout
+ansicolor
+
+# Job DSL (optional, for defining jobs as code)
+job-dsl
