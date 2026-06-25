@@ -1,6 +1,9 @@
 services:
   jenkins:
     image: jenkins-custom
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: jenkins
     restart: unless-stopped
     ports:
@@ -19,6 +22,9 @@ services:
       - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      - REPO_NAME=${REPO_NAME:-}
+      - DEPLOY_PATH=${DEPLOY_PATH:-}
+      - DEPLOY_TYPE=${DEPLOY_TYPE:-}
     networks:
       - jenkins-net
     healthcheck:

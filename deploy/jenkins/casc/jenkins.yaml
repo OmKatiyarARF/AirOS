@@ -43,6 +43,18 @@ credentials:
               password: "${GITHUB_TOKEN}"
               description: "GitHub username + PAT"
 
+# Global environment variables (fallback defaults for builds)
+jenkins:
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "REPO_NAME"
+            value: ""
+          - key: "DEPLOY_PATH"
+            value: ""
+          - key: "DEPLOY_TYPE"
+            value: ""
+
 # Security: disable old protocols
 security:
   globalJobDslSecurityConfiguration:

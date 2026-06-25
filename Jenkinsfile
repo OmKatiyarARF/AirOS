@@ -9,9 +9,9 @@ pipeline {
     }
 
     environment {
-        REPO_NAME = "${env.REPO_NAME}"
-        DEPLOY_PATH = "${env.DEPLOY_PATH}"
-        DEPLOY_TYPE = "${env.DEPLOY_TYPE}"
+        REPO_NAME = "${env.REPO_NAME ?: 'AirOS'}"
+        DEPLOY_PATH = "${env.DEPLOY_PATH ?: '/home/ec2-user/AirOS'}"
+        DEPLOY_TYPE = "${env.DEPLOY_TYPE ?: 'docker'}"
     }
 
     stages {
