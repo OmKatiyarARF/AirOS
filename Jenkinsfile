@@ -65,13 +65,20 @@ pipeline {
                     sleep 5
                     docker compose -f keycloak.yaml ps
                     
-                    # Show Keycloak health status (if available) — fail pipeline if not healthy after reasonable wait
+                    # Check Keycloak readiness. This pipeline runs INSIDE the Jenkins
+                    # container, so "localhost" is Jenkins, not the host — and Keycloak
+                    # serves /health/ready on its management port 9000 (KC_HEALTH_ENABLED),
+                    # which is not published to the host. We probe it by running curl in a
+                    # throwaway container that shares the Keycloak container's network
+                    # namespace, so localhost:9000 resolves to Keycloak itself.
                     echo "Checking Keycloak health..."
-                    MAX_RETRIES=12
+                    MAX_RETRIES=24
                     RETRY_DELAY=5
                     HEALTHY=0
                     for i in $(seq 1 $MAX_RETRIES); do
-                        if curl -sf http://localhost:9081/health/ready >/dev/null 2>&1; then
+                        if docker run --rm --network "container:airos-keycloak" \
+                               curlimages/curl:8.11.0 \
+                               -sf http://localhost:9000/health/ready >/dev/null 2>&1; then
                             echo "Keycloak is healthy."
                             HEALTHY=1
                             break

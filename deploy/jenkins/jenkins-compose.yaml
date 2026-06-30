@@ -6,6 +6,11 @@ services:
       dockerfile: Dockerfile
     container_name: jenkins
     restart: unless-stopped
+    # Grant the jenkins user access to the mounted Docker socket. The socket is
+    # owned by the host "docker" group; jenkins must share that GID to use it.
+    # Override DOCKER_GID in .env if your host's docker group differs (default 992).
+    group_add:
+      - "${DOCKER_GID:-992}"
     ports:
       - "9080:8080"      # Jenkins UI (direct access, proxied via nginx on 90)
       - "50000:50000"    # Jenkins agent port
@@ -15,6 +20,11 @@ services:
       - ./casc:/var/jenkins_home/casc:ro
       - ./repos.json:/var/jenkins_home/repos.json:ro
       - ${REPOS_VOLUME:-/home/ec2-user}:/home/ec2-user:ro
+      # Deploy targets must be writable: the Jenkinsfile runs `git fetch`/`reset`
+      # and `docker compose up` from these persistent host checkouts. These rw
+      # mounts overlay the broad read-only mount above for just the deploy paths.
+      - /home/ec2-user/AirOS:/home/ec2-user/AirOS:rw
+      - /home/ec2-user/central_auth_framework:/home/ec2-user/central_auth_framework:rw
       - ${SSH_VOLUME:-/home/ec2-user/.ssh}:/var/jenkins_home/.ssh:ro
     environment:
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc/jenkins.yaml
