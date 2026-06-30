@@ -9,7 +9,7 @@ jenkins/
 ├── jenkins-compose.yaml     # Docker Compose for Jenkins + nginx
 ├── Dockerfile               # Custom Jenkins image with plugins + init script
 ├── plugins.txt              # List of Jenkins plugins to install
-├── nginx.conf               # Reverse proxy config (port 80 → Jenkins 8080)
+├── nginx.conf               # Reverse proxy config (port 90 → Jenkins 8080)
 ├── .env                     # Secrets (Jenkins password, GitHub token) — NEVER COMMIT
 ├── repos.json               # YOUR list of repos to watch — edit this often
 ├── jenkins.sample           # Sample Jenkinsfile template for new repos
@@ -85,12 +85,12 @@ cd AirOS/deploy/jenkins
 docker compose -f jenkins-compose.yaml up -d --build
 ```
 
-Wait 2 minutes, then open `http://13.205.13.220` (port 80).
+Wait 2 minutes, then open `http://13.205.13.220:90` (port 90).
 
 ### 4. Add GitHub Webhooks
 
 For each repo, go to GitHub → Settings → Webhooks → Add webhook:
-- **Payload URL**: `http://13.205.13.220/github-webhook/`
+- **Payload URL**: `http://13.205.13.220:90/github-webhook/`
 - **Content type**: `application/json`
 - **Trigger**: `Just the push event`
 

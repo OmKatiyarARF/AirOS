@@ -5,9 +5,12 @@ import groovy.json.JsonSlurper
 // This init script reads /var/jenkins_home/repos.json and creates (or updates)
 // one Multibranch Pipeline job per repository.
 //
-// Each job is configured with a FolderProperty that injects the repository's
-// REPO_NAME / DEPLOY_PATH / DEPLOY_TYPE as environment variables so the
-// Jenkinsfile macros (e.g. ${DEPLOY_PATH}) never resolve to null.
+// Environment variables (REPO_NAME, DEPLOY_PATH, DEPLOY_TYPE) are injected
+// via the Jenkinsfile `environment {}` block instead of the deprecated
+// EnvInject plugin, so no extra plugins are required.
+//
+// After creating a job, an immediate branch scan is triggered so branches
+// are discovered right away instead of waiting for the periodic trigger.
 // ---------------------------------------------------------------------------
 
 def jsonFile = '/var/jenkins_home/repos.json'
@@ -21,40 +24,15 @@ if (!file.exists()) {
 def repos = new JsonSlurper().parseText(file.text)
 Jenkins jenkins = Jenkins.getInstanceOrNull()
 
-// Helper closures -----------------------------------------------------------
-
-/**
- * Build the per-job folder-property XML that injects REPO_NAME, DEPLOY_PATH
- * and DEPLOY_TYPE into every branch build for this repository.
- */
-def buildFolderPropertiesXml(repoName, deployPath, deployType) {
-    return """\
-  <properties>
-    <org.jenkinsci.plugins.workflow.multibranch.job.BranchJobProperty>
-      <healthReportsDisabled>false</healthReportsDisabled>
-      <disableTriggerPlugin>false</disableTriggerPlugin>
-    </org.jenkinsci.plugins.workflow.multibranch.job.BranchJobProperty>
-    <org.jenkinsci.plugins.envinject.EnvInjectFolderProperty plugin="envinject">
-      <propertiesFilePath></propertiesFilePath>
-      <propertiesContent>REPO_NAME=${repoName}
-DEPLOY_PATH=${deployPath}
-DEPLOY_TYPE=${deployType}</propertiesContent>
-      <scriptFilePath></scriptFilePath>
-      <scriptContent></scriptContent>
-      <loadFilesFromMaster>false</loadFilesFromMaster>
-    </org.jenkinsci.plugins.envinject.EnvInjectFolderProperty>
-  </properties>"""
-}
-
 /**
  * Build the complete multibranch job XML.
  */
-def buildJobXml(jobName, gitUrl, repoPropertiesXml) {
+def buildJobXml(jobName, gitUrl) {
     return """<?xml version='1.1' encoding='UTF-8'?>
 <org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject plugin="workflow-multibranch">
   <actions/>
   <description>CI/CD for ${jobName}</description>
-${repoPropertiesXml}
+  <properties/>
   <folderViews class="jenkins.branch.MultiBranchProjectViewHolder" plugin="branch-api">
     <owner class="org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject" reference="../.."/>
   </folderViews>
@@ -75,11 +53,6 @@ ${repoPropertiesXml}
       <interval>300000</interval>
     </com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger>
   </triggers>
-  <remoteTriggers>
-    <org.jenkinsci.plugins.github__branch__source.GitHubBranchTrigger>
-      <credentialsId>github-creds</credentialsId>
-    </org.jenkinsci.plugins.github__branch__source.GitHubBranchTrigger>
-  </remoteTriggers>
   <sources class="jenkins.branch.MultiBranchProject\$BranchSourceList" plugin="branch-api">
     <data>
       <jenkins.branch.BranchSource>
@@ -92,6 +65,13 @@ ${repoPropertiesXml}
             <org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
               <strategyId>3</strategyId>
             </org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
+            <org.jenkinsci.plugins.github__branch__source.OriginPullRequestDiscoveryTrait>
+              <strategyId>2</strategyId>
+            </org.jenkinsci.plugins.github__branch__source.OriginPullRequestDiscoveryTrait>
+            <org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait>
+              <strategyId>2</strategyId>
+              <trust class="org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait\$TrustPermission"/>
+            </org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait>
           </traits>
         </source>
         <strategy class="jenkins.branch.DefaultBranchPropertyStrategy">
@@ -108,6 +88,31 @@ ${repoPropertiesXml}
 </org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject>"""
 }
 
+/**
+ * Trigger an immediate branch scan for a multibranch job.
+ */
+def triggerScan(job) {
+    try {
+        def folderCls = jenkins.pluginManager.uberClassLoader.loadClass(
+            'com.cloudbees.hudson.plugins.folder.computed.ComputedFolder')
+        if (folderCls.isInstance(job)) {
+            job.scheduleBuild(0, null)
+            println "Triggered initial branch scan for: ${job.name}"
+            return true
+        }
+    } catch (Exception e) {
+        println "ComputedFolder API unavailable for ${job.name}: ${e.message}"
+    }
+    try {
+        job.scheduleBuild(0, null)
+        println "Triggered initial branch scan (fallback) for: ${job.name}"
+        return true
+    } catch (Exception e) {
+        println "Failed to trigger scan for ${job.name}: ${e.message}"
+        return false
+    }
+}
+
 // Main loop -----------------------------------------------------------------
 
 repos.each { repo ->
@@ -118,47 +123,27 @@ repos.each { repo ->
 
     def jobName = repo.name
     def gitUrl = repo.git_url
-    def deployPath = repo.deploy?.path ?: "/home/ec2-user/${repo.name}"
-    def deployType = repo.deploy?.type ?: "docker"
 
     def existing = jenkins.getItem(jobName)
+    def newlyCreated = false
 
     if (existing == null) {
         println "Creating Multibranch Pipeline job: ${jobName}"
-        
-        def propsXml = buildFolderPropertiesXml(jobName, deployPath, deployType)
-        def xml = buildJobXml(jobName, gitUrl, propsXml)
 
+        def xml = buildJobXml(jobName, gitUrl)
         def is = new ByteArrayInputStream(xml.getBytes("UTF-8"))
-        jenkins.createProjectFromXML(jobName, is)
+        existing = jenkins.createProjectFromXML(jobName, is)
         is.close()
-        
-        println "Created job: ${jobName}  (REPO_NAME=${jobName}, DEPLOY_PATH=${deployPath}, DEPLOY_TYPE=${deployType})"
+        newlyCreated = true
+
+        println "Created job: ${jobName}"
     } else {
-        println "Job already exists: ${jobName} — checking EnvInject property..."
+        println "Job already exists: ${jobName}"
+    }
 
-        // Update the EnvInjectFolderProperty if it is missing or stale
-        def envPropCls = jenkins.pluginManager.uberClassLoader.loadClass(
-            'org.jenkinsci.plugins.envinject.EnvInjectFolderProperty')
-        def currentProp = existing.getProperty(envPropCls)
-
-        def expectedContent = "REPO_NAME=${jobName}\nDEPLOY_PATH=${deployPath}\nDEPLOY_TYPE=${deployType}"
-
-        if (currentProp == null || currentProp.propertiesContent != expectedContent) {
-            existing.removeProperty(envPropCls)
-            def ctor = envPropCls.getConstructor()
-            def newProp = ctor.newInstance()
-            newProp.setPropertiesFilePath('')
-            newProp.setPropertiesContent(expectedContent)
-            newProp.setScriptFilePath('')
-            newProp.setScriptContent('')
-            newProp.setLoadFilesFromMaster(false)
-            existing.addProperty(newProp)
-            existing.save()
-            println "Updated env inject for ${jobName}"
-        } else {
-            println "Env inject already correct for ${jobName}"
-        }
+    // Trigger an initial scan so branches are discovered immediately
+    if (newlyCreated && existing != null) {
+        triggerScan(existing)
     }
 }
 

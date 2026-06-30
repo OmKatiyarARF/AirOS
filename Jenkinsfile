@@ -24,6 +24,25 @@ pipeline {
             }
         }
 
+        stage('Pre-deploy Checks') {
+            steps {
+                sh '''
+                    set -e
+                    echo "Checking Docker and required network..."
+                    docker --version
+                    docker compose --version
+                    
+                    # Ensure the airos-auth network exists before starting Keycloak
+                    if ! docker network inspect airos-auth >/dev/null 2>&1; then
+                        echo "Creating airos-auth network..."
+                        docker network create airos-auth
+                    else
+                        echo "Network airos-auth already exists — OK"
+                    fi
+                '''
+            }
+        }
+
         stage('Deploy Keycloak') {
             when {
                 branch 'main'
@@ -35,9 +54,39 @@ pipeline {
                     cd ${DEPLOY_PATH}
                     git fetch origin main
                     git reset --hard origin/main
+                    
+                    echo "Starting Keycloak platform..."
                     cd deploy
-                    docker compose -f keycloak.yaml up -d --build
-                    docker system prune -f
+                    docker compose -f keycloak.yaml pull
+                    docker compose -f keycloak.yaml up -d
+                    
+                    # Wait briefly for services to settle, then show status
+                    echo "Deployed. Waiting 5 seconds for services to stabilize..."
+                    sleep 5
+                    docker compose -f keycloak.yaml ps
+                    
+                    # Show Keycloak health status (if available) — fail pipeline if not healthy after reasonable wait
+                    echo "Checking Keycloak health..."
+                    MAX_RETRIES=12
+                    RETRY_DELAY=5
+                    HEALTHY=0
+                    for i in $(seq 1 $MAX_RETRIES); do
+                        if curl -sf http://localhost:9081/health/ready >/dev/null 2>&1; then
+                            echo "Keycloak is healthy."
+                            HEALTHY=1
+                            break
+                        fi
+                        echo "Attempt $i/$MAX_RETRIES — Keycloak not ready yet, retrying in ${RETRY_DELAY}s..."
+                        sleep $RETRY_DELAY
+                    done
+                    
+                    if [ "$HEALTHY" -ne 1 ]; then
+                        echo "ERROR: Keycloak health check failed after $((MAX_RETRIES * RETRY_DELAY)) seconds."
+                        exit 1
+                    fi
+                    
+                    # Prune ONLY airos-* images to reclaim space safely
+                    docker image prune -f --filter "label=airos-platform" >/dev/null 2>&1 || true
                 '''
             }
         }

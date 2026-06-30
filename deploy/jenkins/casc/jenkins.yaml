@@ -1,8 +1,18 @@
 jenkins:
   systemMessage: "AirOS Jenkins — Managed via JCasC. Do not configure via UI."
-  numExecutors: 2
+  numExecutors: 1
   mode: NORMAL
   scmCheckoutRetryCount: 3
+
+  globalNodeProperties:
+    - envVars:
+        env:
+          - key: "REPO_NAME"
+            value: ""
+          - key: "DEPLOY_PATH"
+            value: ""
+          - key: "DEPLOY_TYPE"
+            value: ""
 
   securityRealm:
     local:
@@ -15,13 +25,10 @@ jenkins:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
 
-  remotingSecurity:
-    enabled: true
-
 # Where Jenkins writes build data on disk
 unclassified:
   location:
-    url: "http://13.205.13.220/"
+    url: "http://localhost:90/"
     adminAddress: "admin@airawat.org"
 
   timestamper:
@@ -42,20 +49,3 @@ credentials:
               username: "${GITHUB_USER}"
               password: "${GITHUB_TOKEN}"
               description: "GitHub username + PAT"
-
-# Global environment variables (fallback defaults for builds)
-jenkins:
-  globalNodeProperties:
-    - envVars:
-        env:
-          - key: "REPO_NAME"
-            value: ""
-          - key: "DEPLOY_PATH"
-            value: ""
-          - key: "DEPLOY_TYPE"
-            value: ""
-
-# Security: disable old protocols
-security:
-  globalJobDslSecurityConfiguration:
-    useScriptSecurity: false

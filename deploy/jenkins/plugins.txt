@@ -6,6 +6,13 @@ git
 github
 github-branch-source
 
+# Branch API — required for multibranch ‘Scan Now’ UI action
+branch-api
+
+# Folder & Multibranch — core plugins for the scan sidebar
+cloudbees-folder
+workflow-multibranch
+
 # Pipeline
 workflow-aggregator
 pipeline-stage-view
