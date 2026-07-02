@@ -1,16 +1,30 @@
 import jenkins.model.Jenkins
 import groovy.json.JsonSlurper
+import jenkins.branch.BranchSource
+import org.jenkinsci.plugins.github_branch_source.GitHubSCMSource
+import org.jenkinsci.plugins.github_branch_source.BranchDiscoveryTrait
+import jenkins.scm.impl.trait.RegexSCMHeadFilterTrait
+import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject
+import org.jenkinsci.plugins.workflow.multibranch.WorkflowBranchProjectFactory
+import com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger
+import com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy
 
 // ---------------------------------------------------------------------------
-// This init script reads /var/jenkins_home/repos.json and creates (or updates)
-// one Multibranch Pipeline job per repository.
+// Reads /var/jenkins_home/repos.json and creates/updates one Multibranch
+// Pipeline job per repository.
 //
-// Environment variables (REPO_NAME, DEPLOY_PATH, DEPLOY_TYPE) are injected
-// via the Jenkinsfile `environment {}` block instead of the deprecated
-// EnvInject plugin, so no extra plugins are required.
+// Each repos.json entry supports:
+//   name           - Jenkins job display name (required)
+//   git_url        - repo URL; GitHub owner + repo are parsed from it (required)
+//   branch         - the ONLY branch to scan/build/deploy (default "main")
+//   credentials_id - Jenkins credential id for this repo's GitHub account
+//                    (default "github-creds"); must match an id in casc/jenkins.yaml
+//   disabled       - true to skip creating a job for this repo
 //
-// After creating a job, an immediate branch scan is triggered so branches
-// are discovered right away instead of waiting for the periodic trigger.
+// The job source is built with the Jenkins Java API (not hand-written XML):
+// a GitHubSCMSource with a BranchDiscoveryTrait plus a RegexSCMHeadFilterTrait
+// that restricts discovery to exactly `branch`. (Hand-written XML silently
+// drops the source when the filter trait is present, so the API is used.)
 // ---------------------------------------------------------------------------
 
 def jsonFile = '/var/jenkins_home/repos.json'
@@ -22,70 +36,36 @@ if (!file.exists()) {
 }
 
 def repos = new JsonSlurper().parseText(file.text)
-Jenkins jenkins = Jenkins.getInstanceOrNull()
+Jenkins jenkins = Jenkins.get()
 
 /**
- * Build the complete multibranch job XML.
+ * Parse the GitHub owner and repository name out of a git URL.
+ * Handles HTTPS (https://github.com/owner/repo.git) and SSH
+ * (git@github.com:owner/repo.git), with or without ".git".
+ * Returns [owner, repository] or [null, null] if it can't be parsed.
  */
-def buildJobXml(jobName, gitUrl) {
-    return """<?xml version='1.1' encoding='UTF-8'?>
-<org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject plugin="workflow-multibranch">
-  <actions/>
-  <description>CI/CD for ${jobName}</description>
-  <properties/>
-  <folderViews class="jenkins.branch.MultiBranchProjectViewHolder" plugin="branch-api">
-    <owner class="org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject" reference="../.."/>
-  </folderViews>
-  <healthMetrics>
-    <com.cloudbees.hudson.plugins.folder.health.WorstChildHealthMetric/>
-  </healthMetrics>
-  <icon class="jenkins.branch.MetadataActionFolderIcon" plugin="branch-api">
-    <owner class="org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject" reference="../.."/>
-  </icon>
-  <orphanedItemStrategy class="com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy" plugin="cloudbees-folder">
-    <pruneDeadBranches>true</pruneDeadBranches>
-    <daysToKeep>7</daysToKeep>
-    <numToKeep>20</numToKeep>
-  </orphanedItemStrategy>
-  <triggers>
-    <com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger>
-      <spec>H/5 * * * *</spec>
-      <interval>300000</interval>
-    </com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger>
-  </triggers>
-  <sources class="jenkins.branch.MultiBranchProject\$BranchSourceList" plugin="branch-api">
-    <data>
-      <jenkins.branch.BranchSource>
-        <source class="org.jenkinsci.plugins.github__branch__source.GitHubSCMSource" plugin="github-branch-source">
-          <id>${jobName}-source</id>
-          <credentialsId>github-creds</credentialsId>
-          <repoOwner>OmKatiyarARF</repoOwner>
-          <repository>${jobName}</repository>
-          <traits>
-            <org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
-              <strategyId>3</strategyId>
-            </org.jenkinsci.plugins.github__branch__source.BranchDiscoveryTrait>
-            <org.jenkinsci.plugins.github__branch__source.OriginPullRequestDiscoveryTrait>
-              <strategyId>2</strategyId>
-            </org.jenkinsci.plugins.github__branch__source.OriginPullRequestDiscoveryTrait>
-            <org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait>
-              <strategyId>2</strategyId>
-              <trust class="org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait\$TrustPermission"/>
-            </org.jenkinsci.plugins.github__branch__source.ForkPullRequestDiscoveryTrait>
-          </traits>
-        </source>
-        <strategy class="jenkins.branch.DefaultBranchPropertyStrategy">
-          <properties class="empty-list"/>
-        </strategy>
-      </jenkins.branch.BranchSource>
-    </data>
-    <owner class="org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject" reference="../.."/>
-  </sources>
-  <factory class="org.jenkinsci.plugins.workflow.multibranch.WorkflowBranchProjectFactory">
-    <owner class="org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject" reference="../.."/>
-    <scriptPath>Jenkinsfile</scriptPath>
-  </factory>
-</org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject>"""
+def parseOwnerRepo(gitUrl) {
+    def m = (gitUrl =~ /github\.com[\/:]([^\/]+)\/(.+?)(?:\.git)?$/)
+    if (!m.find()) {
+        return [null, null]
+    }
+    return [m.group(1), m.group(2)]
+}
+
+/**
+ * Build a GitHubSCMSource restricted to a single branch.
+ * strategyId 3 = discover all branches; the regex filter then narrows it to
+ * exactly `branch` (a full-match regex, so "main" excludes feature branches
+ * and pull requests).
+ */
+def buildSource(repoOwner, repository, branch, credentialsId) {
+    def source = new GitHubSCMSource(repoOwner, repository)
+    source.setCredentialsId(credentialsId)
+    source.setTraits([
+        new BranchDiscoveryTrait(3),
+        new RegexSCMHeadFilterTrait(branch)
+    ])
+    return source
 }
 
 /**
@@ -93,23 +73,10 @@ def buildJobXml(jobName, gitUrl) {
  */
 def triggerScan(job) {
     try {
-        def folderCls = jenkins.pluginManager.uberClassLoader.loadClass(
-            'com.cloudbees.hudson.plugins.folder.computed.ComputedFolder')
-        if (folderCls.isInstance(job)) {
-            job.scheduleBuild(0, null)
-            println "Triggered initial branch scan for: ${job.name}"
-            return true
-        }
-    } catch (Exception e) {
-        println "ComputedFolder API unavailable for ${job.name}: ${e.message}"
-    }
-    try {
-        job.scheduleBuild(0, null)
-        println "Triggered initial branch scan (fallback) for: ${job.name}"
-        return true
+        job.scheduleBuild2(0)
+        println "Triggered branch scan for: ${job.name}"
     } catch (Exception e) {
         println "Failed to trigger scan for ${job.name}: ${e.message}"
-        return false
     }
 }
 
@@ -122,29 +89,43 @@ repos.each { repo ->
     }
 
     def jobName = repo.name
-    def gitUrl = repo.git_url
+    def branch = repo.branch ?: 'main'
+    def credentialsId = repo.credentials_id ?: 'github-creds'
 
-    def existing = jenkins.getItem(jobName)
+    def (repoOwner, repository) = parseOwnerRepo(repo.git_url)
+    if (repoOwner == null) {
+        println "Skipping ${jobName}: could not parse owner/repo from git_url '${repo.git_url}'"
+        return
+    }
+
+    def job = jenkins.getItem(jobName)
     def newlyCreated = false
-
-    if (existing == null) {
-        println "Creating Multibranch Pipeline job: ${jobName}"
-
-        def xml = buildJobXml(jobName, gitUrl)
-        def is = new ByteArrayInputStream(xml.getBytes("UTF-8"))
-        existing = jenkins.createProjectFromXML(jobName, is)
-        is.close()
+    if (job == null) {
+        println "Creating Multibranch Pipeline job: ${jobName} (${repoOwner}/${repository}, branch '${branch}', creds '${credentialsId}')"
+        job = jenkins.createProject(WorkflowMultiBranchProject, jobName)
         newlyCreated = true
-
-        println "Created job: ${jobName}"
     } else {
-        println "Job already exists: ${jobName}"
+        println "Updating existing job: ${jobName} (${repoOwner}/${repository}, branch '${branch}', creds '${credentialsId}')"
     }
 
-    // Trigger an initial scan so branches are discovered immediately
-    if (newlyCreated && existing != null) {
-        triggerScan(existing)
-    }
+    // Configure the job idempotently via the API. Re-applying the same config
+    // is cheap and lets repos.json changes (branch, credential, URL) take
+    // effect on existing jobs — without the updateByXml source-loss bug.
+    job.setDescription("CI/CD for ${jobName}")
+
+    def factory = new WorkflowBranchProjectFactory()
+    factory.setScriptPath('Jenkinsfile')
+    job.setProjectFactory(factory)
+
+    job.setOrphanedItemStrategy(new DefaultOrphanedItemStrategy(true, "7", "20"))
+    job.addTrigger(new PeriodicFolderTrigger("5m"))   // periodic rescan
+
+    job.setSourcesList([ new BranchSource(buildSource(repoOwner, repository, branch, credentialsId)) ])
+    job.save()
+
+    // Scan so the branch filter is applied and the branch is discovered now
+    triggerScan(job)
+    println "Job ready: ${jobName}"
 }
 
 jenkins.save()

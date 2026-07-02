@@ -44,16 +44,19 @@ pipeline {
         }
 
         stage('Deploy Keycloak') {
+            // Deploy on any branch that gets built. AirOS's repos.json branch
+            // filter guarantees only the designated branch is ever discovered,
+            // so this deploys exactly that branch (and never a pull request).
             when {
-                branch 'main'
+                not { changeRequest() }
             }
             steps {
                 sh '''
                     set -e
-                    echo "Deploying ${REPO_NAME} at ${DEPLOY_PATH}..."
+                    echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) at ${DEPLOY_PATH}..."
                     cd ${DEPLOY_PATH}
-                    git fetch origin main
-                    git reset --hard origin/main
+                    git fetch origin ${BRANCH_NAME}
+                    git reset --hard origin/${BRANCH_NAME}
                     
                     echo "Starting Keycloak platform..."
                     cd deploy

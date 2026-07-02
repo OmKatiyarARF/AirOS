@@ -37,15 +37,28 @@ unclassified:
   globalLibraries:
     libraries: []
 
-# Credentials managed by JCasC — values come from env vars
+# Credentials managed by JCasC — values come from env vars.
+#
+# One credential per GitHub ACCOUNT/ORG. Each repo in repos.json points at one
+# of these by its "credentials_id". To watch repos owned by another account,
+# add its PAT to the .env file and add a matching block here, then reference
+# that id from repos.json.
 credentials:
   system:
     domainCredentials:
       - credentials:
-          # GitHub credentials for cloning repos and webhooks
+          # Default GitHub account. id must match repos.json "credentials_id".
           - usernamePassword:
               scope: GLOBAL
               id: "github-creds"
               username: "${GITHUB_USER}"
               password: "${GITHUB_TOKEN}"
-              description: "GitHub username + PAT"
+              description: "GitHub username + PAT (default account)"
+          # Second GitHub account/org. Fill GITHUB_AIRAWAT_USER / _TOKEN in .env
+          # to activate; the :- defaults keep Jenkins booting if left blank.
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github-airawat"
+              username: "${GITHUB_AIRAWAT_USER:-unset}"
+              password: "${GITHUB_AIRAWAT_TOKEN:-unset}"
+              description: "GitHub username + PAT (Airawat org account)"
