@@ -2,6 +2,8 @@
   {
     "name": "AirOS",
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
+    "branch": "main",
+    "credentials_id": "github-creds",
     "deploy": {
       "type": "local",
       "path": "/home/ec2-user/AirOS"
@@ -10,6 +12,8 @@
   {
     "name": "central_auth_framework",
     "git_url": "https://github.com/OmKatiyarARF/central_auth_framework.git",
+    "branch": "main",
+    "credentials_id": "github-creds",
     "deploy": {
       "type": "local",
       "path": "/home/ec2-user/central_auth_framework"

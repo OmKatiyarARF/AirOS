@@ -42,18 +42,21 @@ pipeline {
         }
 
         stage('Deploy to Production') {
+            // Deploy on any branch that gets built. AirOS's repos.json branch
+            // filter guarantees only the designated branch is ever discovered,
+            // so this deploys exactly that branch (and never a pull request).
             when {
-                branch 'main'
+                not { changeRequest() }
             }
             steps {
                 script {
                     if (DEPLOY_TYPE == 'local') {
                         sh '''
                             set -e
-                            echo "Deploying ${REPO_NAME} locally at ${DEPLOY_PATH}..."
+                            echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) locally at ${DEPLOY_PATH}..."
                             cd ${DEPLOY_PATH}
-                            git fetch origin main
-                            git reset --hard origin/main
+                            git fetch origin ${BRANCH_NAME}
+                            git reset --hard origin/${BRANCH_NAME}
                             echo "=== Add your deploy commands below ==="
                             echo "Example for AirOS:"
                             echo "  cd deploy && docker compose -f keycloak.yaml up -d --build"
@@ -65,11 +68,11 @@ pipeline {
                     } else {
                         sh '''
                             set -e
-                            echo "Deploying ${REPO_NAME} remotely to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}..."
+                            echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) remotely to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH}..."
                             ssh -o StrictHostKeyChecking=no -i ${SSH_KEY_PATH} ${DEPLOY_USER}@${DEPLOY_HOST} << 'EOF'
                                 cd ${DEPLOY_PATH}
-                                git fetch origin main
-                                git reset --hard origin/main
+                                git fetch origin ${BRANCH_NAME}
+                                git reset --hard origin/${BRANCH_NAME}
                                 echo "=== Add your remote deploy commands here ==="
                                 docker compose up -d --build
                                 docker system prune -f

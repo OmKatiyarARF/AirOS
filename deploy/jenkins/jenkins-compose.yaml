@@ -32,6 +32,9 @@ services:
       - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
       - GITHUB_USER=${GITHUB_USER}
       - GITHUB_TOKEN=${GITHUB_TOKEN}
+      # Second GitHub account/org (optional) — referenced by casc id "github-airawat"
+      - GITHUB_AIRAWAT_USER=${GITHUB_AIRAWAT_USER:-}
+      - GITHUB_AIRAWAT_TOKEN=${GITHUB_AIRAWAT_TOKEN:-}
       - REPO_NAME=${REPO_NAME:-}
       - DEPLOY_PATH=${DEPLOY_PATH:-}
       - DEPLOY_TYPE=${DEPLOY_TYPE:-}

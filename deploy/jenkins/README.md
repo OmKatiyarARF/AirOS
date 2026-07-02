@@ -46,37 +46,42 @@ Fill in:
 
 ### 2. Edit `repos.json` — List repos to watch
 
+Each entry supports these fields:
+
+| Field | Required | What it does |
+|---|---|---|
+| `name` | yes | Jenkins job display name |
+| `git_url` | yes | Repo URL. The GitHub **owner/org** and **repo name** are parsed from this, so repos in any account work |
+| `branch` | no (default `main`) | The **only** branch Jenkins scans, builds, and deploys for this repo |
+| `credentials_id` | no (default `github-creds`) | Which GitHub account's credential to authenticate with — must match an `id` in `casc/jenkins.yaml` |
+| `deploy` | no | Informational only; actual deploy logic lives in the repo's own `Jenkinsfile` |
+| `disabled` | no | Set `true` to skip creating a job for this repo |
+
 ```json
 [
   {
     "name": "AirOS",
-    "git_url": "https://github.com/airawatiitk/AirOS.git",
-    "deploy": {
-      "type": "local",
-      "path": "/home/ec2-user/AirOS"
-    }
+    "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
+    "branch": "main",
+    "credentials_id": "github-creds"
   },
   {
-    "name": "central-auth-framework",
-    "git_url": "https://github.com/airawatiitk/central-auth-framework.git",
-    "deploy": {
-      "type": "local",
-      "path": "/home/ec2-user/central-auth-framework"
-    }
-  },
-  {
-    "name": "remote-api",
-    "git_url": "https://github.com/airawatiitk/remote-api.git",
-    "deploy": {
-      "type": "remote",
-      "host": "13.205.13.220",
-      "user": "ubuntu",
-      "path": "/home/ubuntu/remote-api",
-      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/key.pem"}
-    }
+    "name": "dss-backend",
+    "git_url": "https://github.com/AirawatOrg/dss-backend.git",
+    "branch": "develop",
+    "credentials_id": "github-airawat"
   }
 ]
 ```
+
+**Multiple GitHub accounts:** each distinct account/org needs its own PAT credential.
+Define it once in `casc/jenkins.yaml` (with an `id`), supply its token via `.env`,
+then reference that `id` from each repo's `credentials_id`. The repo above named
+`dss-backend` is owned by a different account and uses `github-airawat`.
+
+**Branch selection:** `branch` is enforced by a filter on the multibranch scan —
+only that branch is discovered, so no feature branches or PRs get built, and the
+deploy runs on exactly that branch.
 
 ### 3. Build and start Jenkins
 
@@ -100,11 +105,24 @@ Copy `jenkins.sample` into each repo as `Jenkinsfile` and customize the deploy s
 
 ## Adding a New Repo
 
-1. Add the repo entry to `repos.json`
-2. Clone the repo on the target server (if local: `cd /home/ec2-user && git clone <URL>`)
-3. Add a `Jenkinsfile` to the repo root
-4. Add GitHub webhook for the repo
-5. Restart Jenkins: `docker compose -f jenkins-compose.yaml restart jenkins`
+1. Add the repo entry to `repos.json` with `git_url`, `branch`, and `credentials_id`
+2. If the repo is owned by a **new GitHub account**: add that account's PAT to `.env`
+   (e.g. `GITHUB_AIRAWAT_USER` / `GITHUB_AIRAWAT_TOKEN`) and add a matching
+   `usernamePassword` block in `casc/jenkins.yaml` whose `id` equals the
+   `credentials_id` you used
+3. Clone the repo on the target server (if local: `cd /home/ec2-user && git clone <URL>`)
+4. Add a `Jenkinsfile` to the repo root (copy `jenkins.sample`)
+5. Add GitHub webhook for the repo
+6. Restart Jenkins: `docker compose -f jenkins-compose.yaml restart jenkins`
+
+## ⚠️ Deploy resets the working tree
+
+The deploy stage runs `git reset --hard origin/<branch>` inside the repo's
+checkout on the server. **Any uncommitted local changes in that checkout are
+destroyed** when the pipeline runs. Never edit code directly in a server deploy
+checkout (e.g. `/home/ec2-user/AirOS`) and leave it uncommitted — commit and push
+first, or edit elsewhere. Consider deploying from a separate checkout than the one
+you develop in.
 
 ## Removing a Repo
 
