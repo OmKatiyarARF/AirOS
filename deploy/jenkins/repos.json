@@ -18,5 +18,25 @@
       "type": "local",
       "path": "/home/ec2-user/central_auth_framework"
     }
+  },
+  {
+    "name": "dss-backend-modular",
+    "git_url": "https://github.com/airawatiitk/dss-backend-modular.git",
+    "branch": "main",
+    "credentials_id": "github-airawat",
+    "deploy": {
+      "type": "local",
+      "path": "/home/ec2-user/dss-backend-modular"
+    }
+  },
+  {
+    "name": "dss-frontend",
+    "git_url": "https://github.com/airawatiitk/dss-frontend.git",
+    "branch": "master",
+    "credentials_id": "github-airawat",
+    "deploy": {
+      "type": "local",
+      "path": "/home/ec2-user/dss-frontend"
+    }
   }
 ]

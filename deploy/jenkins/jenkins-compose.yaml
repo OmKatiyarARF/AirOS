@@ -25,6 +25,7 @@ services:
       # mounts overlay the broad read-only mount above for just the deploy paths.
       - /home/ec2-user/AirOS:/home/ec2-user/AirOS:rw
       - /home/ec2-user/central_auth_framework:/home/ec2-user/central_auth_framework:rw
+      # dss-backend-modular and dss-frontend deploy via SSH to 13.205.88.131 — no local mounts needed
       - ${SSH_VOLUME:-/home/ec2-user/.ssh}:/var/jenkins_home/.ssh:ro
     environment:
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc/jenkins.yaml
