@@ -1,6 +1,6 @@
 jenkins:
   systemMessage: "AirOS Jenkins — Managed via JCasC. Do not configure via UI."
-  numExecutors: 1
+  numExecutors: 3
   mode: NORMAL
   scmCheckoutRetryCount: 3
 
