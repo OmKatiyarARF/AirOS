@@ -25,8 +25,12 @@
     "branch": "release/v1",
     "credentials_id": "github-creds",
     "deploy": {
-      "type": "local",
-      "path": "/home/ec2-user/dss-backend-modular"
+      "type": "remote",
+      "host": "13.205.88.131",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/dss-backend-modular",
+      "port": 3001,
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
     }
   },
   {
@@ -35,8 +39,12 @@
     "branch": "master",
     "credentials_id": "github-creds",
     "deploy": {
-      "type": "local",
-      "path": "/home/ec2-user/dss-frontend"
+      "type": "remote",
+      "host": "13.205.88.131",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/dss-frontend",
+      "port": 3002,
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
     }
   }
 ]
