@@ -19,6 +19,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./casc:/var/jenkins_home/casc:ro
       - ./repos.json:/var/jenkins_home/repos.json:ro
+      - ./pipelines:/var/jenkins_home/pipelines:ro
       - ${REPOS_VOLUME:-/home/ec2-user}:/home/ec2-user:ro
       # Deploy targets must be writable: the Jenkinsfile runs `git fetch`/`reset`
       # and `docker compose up` from these persistent host checkouts. These rw
