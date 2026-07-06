@@ -58,6 +58,8 @@
       "user": "ec2-user",
       "path": "/home/ec2-user/hudd-dashboard",
       "port": 8766,
+      "base_path": "/hudd-dashboard",
+      "url": "http://13.203.18.97:8766/hudd-dashboard",
       "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/product-dev.pem"}
     }
   }
