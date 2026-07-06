@@ -118,7 +118,7 @@ repos.each { repo ->
     job.setProjectFactory(factory)
 
     job.setOrphanedItemStrategy(new DefaultOrphanedItemStrategy(true, "7", "20"))
-    job.addTrigger(new PeriodicFolderTrigger("5m"))   // periodic rescan
+    job.addTrigger(new PeriodicFolderTrigger("2m"))   // periodic rescan
 
     job.setSourcesList([ new BranchSource(buildSource(repoOwner, repository, branch, credentialsId)) ])
     job.save()

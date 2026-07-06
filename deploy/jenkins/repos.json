@@ -46,5 +46,19 @@
       "port": 3002,
       "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
     }
+  },
+  {
+    "name": "hudd-dashboard",
+    "git_url": "https://github.com/airawatiitk/hudd-dashboard.git",
+    "branch": "dev",
+    "credentials_id": "github-airawat",
+    "deploy": {
+      "type": "remote",
+      "host": "13.203.18.97",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/hudd-dashboard",
+      "port": 8766,
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/product-dev.pem"}
+    }
   }
 ]
