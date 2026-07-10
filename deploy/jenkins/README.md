@@ -54,7 +54,8 @@ Each entry supports these fields:
 | `git_url` | yes | Repo URL. The GitHub **owner/org** and **repo name** are parsed from this, so repos in any account work |
 | `branch` | no (default `main`) | The **only** branch Jenkins scans, builds, and deploys for this repo |
 | `credentials_id` | no (default `github-creds`) | Which GitHub account's credential to authenticate with — must match an `id` in `casc/jenkins.yaml` |
-| `deploy` | no | Informational only; actual deploy logic lives in the repo's own `Jenkinsfile` |
+| `pipeline_file` | no | Path (relative to `/var/jenkins_home/`) to an AirOS-owned Jenkinsfile, e.g. `pipelines/dss-backend-modular-test.Jenkinsfile`. When set, creates a **standalone** Pipeline job that runs this script instead of a multibranch job reading the target repo's own `Jenkinsfile`. Use this for jobs that must not touch the app repo (isolated test-environment deploys, etc.) — the script is self-contained (its own checkout + `pollSCM` trigger), so `branch`/`git_url` become informational only |
+| `deploy` | no | Informational only; actual deploy logic lives in the repo's own `Jenkinsfile` (or in `pipeline_file` for standalone jobs) |
 | `disabled` | no | Set `true` to skip creating a job for this repo |
 
 ```json

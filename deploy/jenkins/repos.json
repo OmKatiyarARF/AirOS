@@ -34,6 +34,21 @@
     }
   },
   {
+    "name": "dss-backend-modular-test",
+    "git_url": "https://github.com/airawatiitk/dss-backend-modular.git",
+    "branch": "dev",
+    "credentials_id": "github-creds",
+    "pipeline_file": "pipelines/dss-backend-modular-test.Jenkinsfile",
+    "deploy": {
+      "type": "remote",
+      "host": "13.205.88.131",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/dss-backend-modular-test",
+      "port": 4000,
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
+    }
+  },
+  {
     "name": "dss-frontend",
     "git_url": "https://github.com/airawatiitk/dss-frontend.git",
     "branch": "master",
@@ -44,6 +59,21 @@
       "user": "ec2-user",
       "path": "/home/ec2-user/dss-frontend",
       "port": 3002,
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
+    }
+  },
+  {
+    "name": "dss-frontend-test",
+    "git_url": "https://github.com/airawatiitk/dss-frontend.git",
+    "branch": "dev-fe",
+    "credentials_id": "github-creds",
+    "pipeline_file": "pipelines/dss-frontend-test.Jenkinsfile",
+    "deploy": {
+      "type": "remote",
+      "host": "13.205.88.131",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/dss-frontend-test",
+      "port": 4001,
       "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
     }
   },
