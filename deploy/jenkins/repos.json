@@ -91,5 +91,31 @@
       "url": "https://product.airawat.org/hudd-dashboard",
       "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/product-dev.pem"}
     }
+  },
+  {
+    "name": "erpnext-test",
+    "git_url": "https://github.com/airawatiitk/erpnext.git",
+    "branch": "develop",
+    "credentials_id": "github-creds",
+    "deploy": {
+      "type": "remote",
+      "host": "13.61.65.154",
+      "user": "ubuntu",
+      "path": "/home/ubuntu/frappe-bench/apps/erpnext",
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/test.airawat.org.pem"}
+    }
+  },
+  {
+    "name": "hrms-test",
+    "git_url": "https://github.com/airawatiitk/hrms.git",
+    "branch": "develop",
+    "credentials_id": "github-creds",
+    "deploy": {
+      "type": "remote",
+      "host": "13.61.65.154",
+      "user": "ubuntu",
+      "path": "/home/ubuntu/frappe-bench/apps/hrms",
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/test.airawat.org.pem"}
+    }
   }
 ]
