@@ -12,6 +12,12 @@ pipeline {
         REPO_NAME = "${env.REPO_NAME ?: 'AirOS'}"
         DEPLOY_PATH = "${env.DEPLOY_PATH ?: '/home/ec2-user/AirOS'}"
         DEPLOY_TYPE = "${env.DEPLOY_TYPE ?: 'docker'}"
+        // J1: deploy over SSH to the host instead of driving the host Docker
+        // socket from inside the Jenkins container. The host runs docker compose
+        // itself; Jenkins only triggers it. Override per environment as needed.
+        DEPLOY_HOST = "${env.DEPLOY_HOST ?: '172.31.30.135'}"
+        DEPLOY_USER = "${env.DEPLOY_USER ?: 'ec2-user'}"
+        DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/var/jenkins_home/.ssh/product-dev.pem'}"
     }
 
     stages {
@@ -28,17 +34,11 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "Checking Docker and required network..."
-                    docker --version
-                    docker compose --version
-                    
-                    # Ensure the airos-auth network exists before starting Keycloak
-                    if ! docker network inspect airos-auth >/dev/null 2>&1; then
-                        echo "Creating airos-auth network..."
-                        docker network create airos-auth
-                    else
-                        echo "Network airos-auth already exists — OK"
-                    fi
+                    echo "Checking Docker on the deploy target (${DEPLOY_USER}@${DEPLOY_HOST}) over SSH..."
+                    ssh -i "${DEPLOY_SSH_KEY}" \
+                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                        "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                        'set -e; docker --version && docker compose version && (docker network inspect airos-auth >/dev/null 2>&1 || docker network create airos-auth) && echo "pre-deploy OK"'
                 '''
             }
         }
@@ -51,52 +51,21 @@ pipeline {
                 not { changeRequest() }
             }
             steps {
+                // P1: deploy-keycloak.sh records the previously-deployed commit
+                // SHA to .deploy/previous-sha before resetting, so the
+                // airos-rollback job can restore it instantly if this deploy
+                // breaks. The script is piped over SSH stdin (not run from the
+                // host file) so the `git reset --hard` inside it cannot
+                // self-modify the script mid-execution.
                 sh '''
                     set -e
-                    echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) at ${DEPLOY_PATH}..."
-                    cd ${DEPLOY_PATH}
-                    git fetch origin ${BRANCH_NAME}
-                    git reset --hard origin/${BRANCH_NAME}
-                    
-                    echo "Starting Keycloak platform..."
-                    cd deploy
-                    docker compose -f keycloak.yaml pull
-                    docker compose -f keycloak.yaml up -d
-                    
-                    # Wait briefly for services to settle, then show status
-                    echo "Deployed. Waiting 5 seconds for services to stabilize..."
-                    sleep 5
-                    docker compose -f keycloak.yaml ps
-                    
-                    # Check Keycloak readiness. This pipeline runs INSIDE the Jenkins
-                    # container, so "localhost" is Jenkins, not the host — and Keycloak
-                    # serves /health/ready on its management port 9000 (KC_HEALTH_ENABLED),
-                    # which is not published to the host. We probe it by running curl in a
-                    # throwaway container that shares the Keycloak container's network
-                    # namespace, so localhost:9000 resolves to Keycloak itself.
-                    echo "Checking Keycloak health..."
-                    MAX_RETRIES=24
-                    RETRY_DELAY=5
-                    HEALTHY=0
-                    for i in $(seq 1 $MAX_RETRIES); do
-                        if docker run --rm --network "container:airos-keycloak" \
-                               curlimages/curl:8.11.0 \
-                               -sf http://localhost:9000/health/ready >/dev/null 2>&1; then
-                            echo "Keycloak is healthy."
-                            HEALTHY=1
-                            break
-                        fi
-                        echo "Attempt $i/$MAX_RETRIES — Keycloak not ready yet, retrying in ${RETRY_DELAY}s..."
-                        sleep $RETRY_DELAY
-                    done
-                    
-                    if [ "$HEALTHY" -ne 1 ]; then
-                        echo "ERROR: Keycloak health check failed after $((MAX_RETRIES * RETRY_DELAY)) seconds."
-                        exit 1
-                    fi
-                    
-                    # Prune ONLY airos-* images to reclaim space safely
-                    docker image prune -f --filter "label=airos-platform" >/dev/null 2>&1 || true
+                    echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH} over SSH..."
+                    ssh -i "${DEPLOY_SSH_KEY}" \
+                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                        "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                        "DEPLOY_PATH=${DEPLOY_PATH} bash -s -- ${BRANCH_NAME}" \
+                        < deploy/deploy-keycloak.sh
+                    echo "✅ ${REPO_NAME} (${BRANCH_NAME}) deployed on ${DEPLOY_HOST}"
                 '''
             }
         }
@@ -107,7 +76,7 @@ pipeline {
             echo "✅ ${REPO_NAME} deployment succeeded"
         }
         failure {
-            echo "❌ ${REPO_NAME} deployment failed — check logs above"
+            echo "❌ ${REPO_NAME} deployment failed — check logs above. Roll back via the airos-rollback job if needed."
         }
         always {
             cleanWs()

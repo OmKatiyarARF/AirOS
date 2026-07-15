@@ -117,5 +117,19 @@
       "path": "/home/ubuntu/frappe-bench/apps/hrms",
       "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/test.airawat.org.pem"}
     }
+  },
+  {
+    "name": "airos-rollback",
+    "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
+    "branch": "main",
+    "credentials_id": "github-creds",
+    "pipeline_file": "pipelines/airos-rollback.Jenkinsfile",
+    "deploy": {
+      "type": "remote",
+      "host": "172.31.30.135",
+      "user": "ec2-user",
+      "path": "/home/ec2-user/AirOS",
+      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/product-dev.pem"}
+    }
   }
 ]
