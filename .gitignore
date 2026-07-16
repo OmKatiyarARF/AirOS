@@ -1,2 +1,4 @@
 .env
 .env*
+# P1: runtime rollback marker written on the deploy host by deploy-keycloak.sh
+.deploy/
