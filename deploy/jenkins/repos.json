@@ -123,7 +123,7 @@
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
     "branch": "main",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/airos-rollback.Jenkinsfile",
+    "pipeline_file": "pipelines/AirOS-rollback.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "172.31.30.135",

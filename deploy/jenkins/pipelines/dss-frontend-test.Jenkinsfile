@@ -34,13 +34,14 @@ pipeline {
         }
         stage('Deploy test frontend (:4001 -> API :4000)') {
             steps {
-                sh '''
-                    set -e
-                    ssh -i /var/jenkins_home/.ssh/air-quality.pem \
-                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
-                        ec2-user@13.205.88.131 \
-                        'bash /home/ec2-user/dss-frontend-test/deploy.sh dev-fe'
-                '''
+                sshagent(credentials: ['ssh-air-quality']) {
+                    sh '''
+                        set -e
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                            ec2-user@13.205.88.131 \
+                            'bash /home/ec2-user/dss-frontend-test/deploy.sh dev-fe'
+                    '''
+                }
             }
         }
     }

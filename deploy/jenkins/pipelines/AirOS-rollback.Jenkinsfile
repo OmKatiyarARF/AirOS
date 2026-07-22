@@ -21,7 +21,10 @@ pipeline {
         DEPLOY_PATH = "${env.DEPLOY_PATH ?: '/home/ec2-user/AirOS'}"
         DEPLOY_HOST = "${env.DEPLOY_HOST ?: '172.31.30.135'}"
         DEPLOY_USER = "${env.DEPLOY_USER ?: 'ec2-user'}"
-        DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/var/jenkins_home/.ssh/product-dev.pem'}"
+        // Credential id in Jenkins' credentials store (see casc/jenkins.yaml),
+        // not a raw file path — sshagent injects the key for the ssh call
+        // below without ever writing it to disk or printing it in logs.
+        DEPLOY_SSH_CREDENTIAL = "${env.DEPLOY_SSH_CREDENTIAL ?: 'ssh-product-dev'}"
     }
     stages {
         stage('Checkout (for the rollback script)') {
@@ -38,16 +41,17 @@ pipeline {
             steps {
                 // Piped over SSH stdin so the `git reset --hard` inside the
                 // script cannot self-modify the script mid-execution.
-                sh '''
-                    set -e
-                    echo "Rolling back ${DEPLOY_PATH} on ${DEPLOY_USER}@${DEPLOY_HOST} over SSH..."
-                    ssh -i "${DEPLOY_SSH_KEY}" \
-                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
-                        "${DEPLOY_USER}@${DEPLOY_HOST}" \
-                        "DEPLOY_PATH=${DEPLOY_PATH} bash -s" \
-                        < deploy/rollback-keycloak.sh
-                    echo "✅ AirOS rollback complete on ${DEPLOY_HOST}"
-                '''
+                sshagent(credentials: [DEPLOY_SSH_CREDENTIAL]) {
+                    sh '''
+                        set -e
+                        echo "Rolling back ${DEPLOY_PATH} on ${DEPLOY_USER}@${DEPLOY_HOST} over SSH..."
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "DEPLOY_PATH=${DEPLOY_PATH} bash -s" \
+                            < deploy/rollback-keycloak.sh
+                        echo "✅ AirOS rollback complete on ${DEPLOY_HOST}"
+                    '''
+                }
             }
         }
     }

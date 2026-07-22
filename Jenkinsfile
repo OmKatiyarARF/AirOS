@@ -17,7 +17,10 @@ pipeline {
         // itself; Jenkins only triggers it. Override per environment as needed.
         DEPLOY_HOST = "${env.DEPLOY_HOST ?: '172.31.30.135'}"
         DEPLOY_USER = "${env.DEPLOY_USER ?: 'ec2-user'}"
-        DEPLOY_SSH_KEY = "${env.DEPLOY_SSH_KEY ?: '/var/jenkins_home/.ssh/product-dev.pem'}"
+        // Credential id in Jenkins' credentials store (see casc/jenkins.yaml),
+        // not a raw file path — sshagent injects the key for the ssh calls
+        // below without ever writing it to disk or printing it in logs.
+        DEPLOY_SSH_CREDENTIAL = "${env.DEPLOY_SSH_CREDENTIAL ?: 'ssh-product-dev'}"
     }
 
     stages {
@@ -32,14 +35,15 @@ pipeline {
 
         stage('Pre-deploy Checks') {
             steps {
-                sh '''
-                    set -e
-                    echo "Checking Docker on the deploy target (${DEPLOY_USER}@${DEPLOY_HOST}) over SSH..."
-                    ssh -i "${DEPLOY_SSH_KEY}" \
-                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
-                        "${DEPLOY_USER}@${DEPLOY_HOST}" \
-                        'set -e; docker --version && docker compose version && (docker network inspect airos-auth >/dev/null 2>&1 || docker network create airos-auth) && echo "pre-deploy OK"'
-                '''
+                sshagent(credentials: [DEPLOY_SSH_CREDENTIAL]) {
+                    sh '''
+                        set -e
+                        echo "Checking Docker on the deploy target (${DEPLOY_USER}@${DEPLOY_HOST}) over SSH..."
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            'set -e; docker --version && docker compose version && (docker network inspect airos-auth >/dev/null 2>&1 || docker network create airos-auth) && echo "pre-deploy OK"'
+                    '''
+                }
             }
         }
 
@@ -57,16 +61,17 @@ pipeline {
                 // breaks. The script is piped over SSH stdin (not run from the
                 // host file) so the `git reset --hard` inside it cannot
                 // self-modify the script mid-execution.
-                sh '''
-                    set -e
-                    echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH} over SSH..."
-                    ssh -i "${DEPLOY_SSH_KEY}" \
-                        -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
-                        "${DEPLOY_USER}@${DEPLOY_HOST}" \
-                        "DEPLOY_PATH=${DEPLOY_PATH} bash -s -- ${BRANCH_NAME}" \
-                        < deploy/deploy-keycloak.sh
-                    echo "✅ ${REPO_NAME} (${BRANCH_NAME}) deployed on ${DEPLOY_HOST}"
-                '''
+                sshagent(credentials: [DEPLOY_SSH_CREDENTIAL]) {
+                    sh '''
+                        set -e
+                        echo "Deploying ${REPO_NAME} (${BRANCH_NAME}) to ${DEPLOY_USER}@${DEPLOY_HOST}:${DEPLOY_PATH} over SSH..."
+                        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                            "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                            "DEPLOY_PATH=${DEPLOY_PATH} bash -s -- ${BRANCH_NAME}" \
+                            < deploy/deploy-keycloak.sh
+                        echo "✅ ${REPO_NAME} (${BRANCH_NAME}) deployed on ${DEPLOY_HOST}"
+                    '''
+                }
             }
         }
     }

@@ -2,3 +2,8 @@
 .env*
 # P1: runtime rollback marker written on the deploy host by deploy-keycloak.sh
 .deploy/
+# Secrets fetched fresh from AWS Secrets Manager by security/fetch-secrets.sh.
+# Disposable/regenerated on every Jenkins start — never commit these.
+deploy/jenkins/secrets-runtime/
+security/*.json.tmp
+security/corrected-secret.json

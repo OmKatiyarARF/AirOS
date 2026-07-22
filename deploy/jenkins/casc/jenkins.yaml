@@ -43,6 +43,16 @@ unclassified:
 # of these by its "credentials_id". To watch repos owned by another account,
 # add its PAT to the .env file and add a matching block here, then reference
 # that id from repos.json.
+#
+# SSH keys: the actual key material is fetched fresh from AWS Secrets Manager
+# by ../../security/fetch-secrets.sh every time Jenkins starts, and lands at
+# /var/jenkins_home/.ssh/<name>.pem inside the container (see jenkins-compose.yaml's
+# volume mount). The `${readFile:...}` helper below reads that file's raw
+# content — including real line breaks — straight into the credential, so the
+# private key itself is never typed into this YAML file or committed to git.
+# Existing pipelines that still `ssh -i /var/jenkins_home/.ssh/xxx.pem` keep
+# working unchanged; new/updated pipelines should prefer `sshagent(['ssh-...'])`
+# so the key is masked in build logs and access is scoped by credential ID.
 credentials:
   system:
     domainCredentials:
@@ -62,3 +72,27 @@ credentials:
               username: "${GITHUB_AIRAWAT_USER:-unset}"
               password: "${GITHUB_AIRAWAT_TOKEN:-unset}"
               description: "GitHub username + PAT (Airawat org account)"
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "ssh-air-quality"
+              username: "ec2-user"
+              description: "SSH key for the AirQuality deploy target (from AWS Secrets Manager)"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/var/jenkins_home/.ssh/air-quality.pem}"
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "ssh-product-dev"
+              username: "ec2-user"
+              description: "SSH key for the product/dev deploy targets (from AWS Secrets Manager)"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/var/jenkins_home/.ssh/product-dev.pem}"
+          - basicSSHUserPrivateKey:
+              scope: GLOBAL
+              id: "ssh-test-airawat"
+              username: "ubuntu"
+              description: "SSH key for the test.airawat.org deploy targets (from AWS Secrets Manager)"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/var/jenkins_home/.ssh/test.airawat.org.pem}"

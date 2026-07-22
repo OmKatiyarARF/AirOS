@@ -21,16 +21,23 @@ services:
       # Deploy targets are no longer mounted writable into Jenkins: deploys run
       # over SSH on the host, which already owns those checkouts natively.
       # dss-* / hudd / erpnext / hrms deploy via SSH to remote hosts — no local mounts needed.
-      - ${SSH_VOLUME:-/home/ec2-user/.ssh}:/var/jenkins_home/.ssh:ro
+      # SECURITY: this used to point straight at the host's ~/.ssh (permanent
+      # plaintext keys). It now points at ./secrets-runtime, a folder that
+      # ../../security/fetch-secrets.sh regenerates fresh from AWS Secrets
+      # Manager every time Jenkins starts (see start.sh). Nothing sensitive is
+      # kept on disk here between restarts.
+      - ${SSH_VOLUME:-./secrets-runtime}:/var/jenkins_home/.ssh:ro
+    env_file:
+      # GITHUB_TOKEN lives here now (fetched from AWS Secrets Manager by
+      # fetch-secrets.sh), not as a plaintext line in .env anymore.
+      - .env.secrets
     environment:
       - CASC_JENKINS_CONFIG=/var/jenkins_home/casc/jenkins.yaml
       - JENKINS_ADMIN_USER=${JENKINS_ADMIN_USER}
       - JENKINS_ADMIN_PASSWORD=${JENKINS_ADMIN_PASSWORD}
       - GITHUB_USER=${GITHUB_USER}
-      - GITHUB_TOKEN=${GITHUB_TOKEN}
       # Second GitHub account/org (optional) — referenced by casc id "github-airawat"
       - GITHUB_AIRAWAT_USER=${GITHUB_AIRAWAT_USER:-}
-      - GITHUB_AIRAWAT_TOKEN=${GITHUB_AIRAWAT_TOKEN:-}
       - REPO_NAME=${REPO_NAME:-}
       - DEPLOY_PATH=${DEPLOY_PATH:-}
       - DEPLOY_TYPE=${DEPLOY_TYPE:-}
@@ -38,6 +45,7 @@ services:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false -Djenkins.security.ContentSecurityPolicy.policy="default-src 'self'; script-src 'self'; style-src 'self';"
     networks:
       - jenkins-net
+      - ec2_default   # lets Kong (on the ec2_default network) reach Jenkins for jenkins.airawat.org
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/login"]
       interval: 30s
@@ -65,3 +73,5 @@ volumes:
 networks:
   jenkins-net:
     driver: bridge
+  ec2_default:
+    external: true
