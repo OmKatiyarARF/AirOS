@@ -30,12 +30,14 @@ TARGET_SHA="$(cat "$ROLLBACK_FILE")"
 echo "Rolling back dss-test app/worker to previous image SHA: $TARGET_SHA"
 
 # Rewrite the CI override to point at the previous SHA's image (no build).
+# Test images live under the dedicated dss-backend-modular-app-test repo so a
+# rollback here can never disturb prod's dss-backend-modular-app images.
 cat > "$SRC/$OVERRIDE" <<YML
 services:
   app:
-    image: dss-backend-modular-app:${TARGET_SHA}
+    image: dss-backend-modular-app-test:${TARGET_SHA}
   worker:
-    image: dss-backend-modular-app:${TARGET_SHA}
+    image: dss-backend-modular-app-test:${TARGET_SHA}
 YML
 
 cd "$SRC"
