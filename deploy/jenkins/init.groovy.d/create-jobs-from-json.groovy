@@ -157,9 +157,7 @@ def createStandaloneJob = { jenkinsRef, repo ->
     // safe ONLY because pipeline_file scripts are AirOS-owned code reviewed
     // and committed to this repo, not arbitrary user input.
     if (!useSandbox) {
-        def sa = ScriptApproval.get()
-        def hash = sa.hash(scriptFile.text, GroovyLanguage.get())
-        sa.approveScript(hash)
+        def hash = ScriptApproval.get().preapprove(scriptFile.text, GroovyLanguage.get())
         println "Pre-approved trusted script for ${jobName} (hash ${hash.take(16)}...)"
     }
 
