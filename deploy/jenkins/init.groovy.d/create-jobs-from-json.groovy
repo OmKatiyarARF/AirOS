@@ -10,6 +10,8 @@ import com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger
 import com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy
 import org.jenkinsci.plugins.workflow.job.WorkflowJob
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition
+import org.jenkinsci.plugins.scriptsecurity.scripts.ScriptApproval
+import org.jenkinsci.plugins.scriptsecurity.scripts.languages.GroovyLanguage
 
 // ---------------------------------------------------------------------------
 // Reads /var/jenkins_home/repos.json and creates/updates one Pipeline job per
@@ -143,6 +145,24 @@ def createStandaloneJob = { jenkinsRef, repo ->
     def useSandbox = (repo.sandbox == null) ? true : (repo.sandbox as boolean)
     job.setDescription("CI/CD for ${jobName} (standalone, branch '${repo.branch ?: 'n/a'}', sandbox=${useSandbox})")
     job.setDefinition(new CpsFlowDefinition(scriptFile.text, useSandbox))
+
+    // A non-sandboxed (trusted) CpsFlowDefinition still refuses to RUN unless
+    // its exact script content has been through Script Approval — normally
+    // granted automatically when an admin saves a pipeline via the web UI,
+    // but creating the job programmatically here skips that step. Without
+    // this, every restart would recreate the job "successfully" yet every
+    // build would fail instantly with UnapprovedUsageException the moment it
+    // touched the @NonCPS helper — never actually running the rollback.
+    // Pre-approving the hash here (running as SYSTEM, so always trusted) is
+    // safe ONLY because pipeline_file scripts are AirOS-owned code reviewed
+    // and committed to this repo, not arbitrary user input.
+    if (!useSandbox) {
+        def sa = ScriptApproval.get()
+        def hash = sa.hash(scriptFile.text, GroovyLanguage.get())
+        sa.approveScript(hash)
+        println "Pre-approved trusted script for ${jobName} (hash ${hash.take(16)}...)"
+    }
+
     job.save()
     println "Job ready: ${jobName}"
 }
