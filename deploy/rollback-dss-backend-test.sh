@@ -1,37 +1,36 @@
 #!/usr/bin/env bash
-# Host-side rollback for dss-backend-modular TEST environment (Fix 3).
+# Host-side rollback for dss-backend-modular TEST environment (:4000).
 #
-# Restarts the dss-test app/worker containers (project "dss-test", port 4000)
-# at the image SHA recorded in .deploy/previous-image-sha by the last test
-# deploy. The SHA-tagged image is permanent, so this just re-points compose at
-# the previous tag — no rebuild, no git reset.
+# The rollback TARGET is decided by the Jenkins rollback pipeline — the PREVIOUS
+# successful build of the dss-backend-modular-test deploy job (dev) — and passed
+# in as TARGET_SHA. READ-ONLY with respect to deploy state: never writes
+# .deploy/*-image-sha, so a rollback run can never change what a future rollback
+# targets. Re-points the dss-test app/worker at the permanent TEST-ONLY image
+# dss-backend-modular-app-test:<sha>. Prod (:3001) is never touched.
 #
-# Run on the AirQuality server (13.205.88.131) over SSH from the
-# dss-backend-modular-test-rollback Jenkins job. Piped over SSH stdin.
-#
-# Usage: rollback-dss-backend-test.sh
+# Run over SSH stdin from the dss-backend-modular-test-rollback Jenkins job:
+#   TARGET_SHA=<shortsha> bash -s < rollback-dss-backend-test.sh
 
 set -euo pipefail
 
-STATE_DIR="${STATE_DIR:-/home/ec2-user/dss-backend-modular-test}"
 SRC="${SRC:-/home/ec2-user/dss-backend-modular-test-src}"
 PROJECT="dss-test"
 BASE="docker-compose.test.yml"
 OVERRIDE="docker-compose.test.ci.yml"
-ROLLBACK_FILE="$STATE_DIR/.deploy/previous-image-sha"
+: "${TARGET_SHA:?TARGET_SHA is required (set by the rollback pipeline from the deploy job previous successful build)}"
 
-if [ ! -s "$ROLLBACK_FILE" ]; then
-    echo "ERROR: no previous image SHA recorded at $ROLLBACK_FILE." >&2
-    echo "Run a SHA-tagged test deploy first so a rollback target exists." >&2
+if ! docker image inspect "dss-backend-modular-app-test:${TARGET_SHA}" >/dev/null 2>&1; then
+    echo "ERROR: image dss-backend-modular-app-test:${TARGET_SHA} not present on host (pruned?)." >&2
+    exit 1
+fi
+if [ ! -f "$SRC/$BASE" ]; then
+    echo "ERROR: $SRC/$BASE not found — run a test deploy first." >&2
     exit 1
 fi
 
-TARGET_SHA="$(cat "$ROLLBACK_FILE")"
-echo "Rolling back dss-test app/worker to previous image SHA: $TARGET_SHA"
+echo "Rolling back dss-test app/worker to image SHA: $TARGET_SHA"
 
-# Rewrite the CI override to point at the previous SHA's image (no build).
-# Test images live under the dedicated dss-backend-modular-app-test repo so a
-# rollback here can never disturb prod's dss-backend-modular-app images.
+# Re-point the CI override at the previous SHA TEST-ONLY image (no build).
 cat > "$SRC/$OVERRIDE" <<YML
 services:
   app:
@@ -42,10 +41,6 @@ YML
 
 cd "$SRC"
 docker compose -p "$PROJECT" -f "$BASE" -f "$OVERRIDE" up -d --no-deps app worker
-
-# Bookkeeping: the rolled-back-to SHA is now live.
-mkdir -p "$STATE_DIR/.deploy"
-echo "$TARGET_SHA" > "$STATE_DIR/.deploy/last-image-sha"
 
 sleep 10
 docker compose -p "$PROJECT" -f "$BASE" -f "$OVERRIDE" ps app worker
@@ -68,4 +63,4 @@ if [ "$HEALTHY" -ne 1 ]; then
     exit 1
 fi
 
-echo "✅ dss-test rolled back to image SHA $TARGET_SHA"
+echo "✅ dss-test rolled back to image SHA $TARGET_SHA (deploy records untouched)"

@@ -17,6 +17,10 @@ services:
       - ./casc:/var/jenkins_home/casc:ro
       - ./repos.json:/var/jenkins_home/repos.json:ro
       - ./pipelines:/var/jenkins_home/pipelines:ro
+      # Live-mount the job-creation init script (also baked into the image via
+      # ref/init.groovy.d) so edits take effect on a plain restart without an
+      # image rebuild — mirrors how repos.json / pipelines are mounted.
+      - ./init.groovy.d:/var/jenkins_home/init.groovy.d:ro
       - ${REPOS_VOLUME:-/home/ec2-user}:/home/ec2-user:ro
       # Deploy targets are no longer mounted writable into Jenkins: deploys run
       # over SSH on the host, which already owns those checkouts natively.

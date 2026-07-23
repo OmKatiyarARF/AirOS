@@ -33,6 +33,11 @@ import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition
 //                    running that script instead of a multibranch job reading
 //                    the target repo's own Jenkinsfile. Use this for jobs that
 //                    must not touch the app repo (e.g. isolated test deploys).
+//   sandbox        - (pipeline_file entries only) run the standalone pipeline
+//                    in the Groovy sandbox. Default true. Set false ONLY for
+//                    trusted AirOS-owned pipelines that must read Jenkins
+//                    internals (e.g. the rollback jobs, which walk the deploy
+//                    job's build history to find the previous successful SHA).
 //   disabled       - true to skip creating a job for this repo
 //
 // Multibranch job sources are built with the Jenkins Java API (not
@@ -131,8 +136,13 @@ def createStandaloneJob = { jenkinsRef, repo ->
         println "Updating standalone Pipeline job: ${jobName} (pipeline_file '${repo.pipeline_file}')"
     }
 
-    job.setDescription("CI/CD for ${jobName} (standalone, branch '${repo.branch ?: 'n/a'}')")
-    job.setDefinition(new CpsFlowDefinition(scriptFile.text, true))
+    // Standalone jobs run sandboxed by default. A repos.json entry may set
+    // "sandbox": false to run the pipeline trusted — required by the rollback
+    // jobs, which read the deploy job's build history via Jenkins' object model
+    // (blocked in the sandbox).
+    def useSandbox = (repo.sandbox == null) ? true : (repo.sandbox as boolean)
+    job.setDescription("CI/CD for ${jobName} (standalone, branch '${repo.branch ?: 'n/a'}', sandbox=${useSandbox})")
+    job.setDefinition(new CpsFlowDefinition(scriptFile.text, useSandbox))
     job.save()
     println "Job ready: ${jobName}"
 }

@@ -138,6 +138,7 @@
     "branch": "main",
     "credentials_id": "github-creds",
     "pipeline_file": "pipelines/dss-backend-modular-rollback.Jenkinsfile",
+    "sandbox": false,
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
@@ -152,6 +153,7 @@
     "branch": "main",
     "credentials_id": "github-creds",
     "pipeline_file": "pipelines/dss-backend-modular-test-rollback.Jenkinsfile",
+    "sandbox": false,
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
