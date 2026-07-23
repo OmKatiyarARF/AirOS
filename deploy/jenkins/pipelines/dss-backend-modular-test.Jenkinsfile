@@ -33,6 +33,18 @@ pipeline {
                 echo "Building test backend for commit ${env.GIT_COMMIT}"
             }
         }
+        stage('Test (gate)') {
+            steps {
+                // Fix 2 — tests must pass before the test-env deploy is allowed.
+                // Same SQLite/in-memory suite as prod; exits non-zero on failure
+                // and stops the pipeline before the SSH deploy below.
+                sh '''
+                    set -e
+                    npm ci
+                    npm test
+                '''
+            }
+        }
         stage('Deploy test backend (:4000)') {
             steps {
                 sshagent(credentials: ['ssh-air-quality']) {

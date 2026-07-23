@@ -16,6 +16,8 @@ RUN apt-get update && \
         nodejs \
         npm \
         openssh-client \
+        shellcheck \
+        yamllint \
     && rm -rf /var/lib/apt/lists/*
 
 USER jenkins

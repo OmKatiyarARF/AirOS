@@ -47,6 +47,24 @@ pipeline {
             }
         }
 
+        // Fix 2 — lightweight test gate for AirOS. AirOS is shell scripts + YAML
+        // config (no app test suite), so this runs shellcheck on the deploy
+        // scripts and validates the Keycloak compose file's YAML syntax. Any
+        // failure stops the pipeline before the deploy stage. (yamllint -d
+        // relaxed catches syntax errors but ignores style nits; the Jenkins
+        // agent has no docker binary, so we can't run `docker compose config`.)
+        stage('Lint') {
+            steps {
+                sh '''
+                    set -e
+                    echo "shellcheck on deploy/*.sh ..."
+                    shellcheck deploy/*.sh
+                    echo "yamllint (relaxed) on deploy/keycloak.yaml ..."
+                    yamllint -d relaxed deploy/keycloak.yaml
+                '''
+            }
+        }
+
         stage('Deploy Keycloak') {
             // Deploy on any branch that gets built. AirOS's repos.json branch
             // filter guarantees only the designated branch is ever discovered,
