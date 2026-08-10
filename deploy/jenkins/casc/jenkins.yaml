@@ -28,7 +28,7 @@ jenkins:
 # Where Jenkins writes build data on disk
 unclassified:
   location:
-    url: "http://localhost:90/"
+    url: "https://jenkins.airawat.org/"
     adminAddress: "admin@airawat.org"
 
   timestamper:
@@ -72,6 +72,20 @@ credentials:
               username: "${GITHUB_AIRAWAT_USER:-unset}"
               password: "${GITHUB_AIRAWAT_TOKEN:-unset}"
               description: "GitHub username + PAT (Airawat org account)"
+          # Microsoft Teams incoming-webhook URL (Power Automate workflow) for
+          # the "Deployment - Jenkins_GA" channel, used by the
+          # office365ConnectorSend step in the deploy pipelines.
+          #
+          # MUST be declared here rather than added through the Jenkins UI:
+          # JCasC owns this credentials store, so any UI-created credential is
+          # deleted the next time Jenkins restarts and re-applies this file.
+          # The value comes from TEAMS_WEBHOOK_URL in deploy/jenkins/.env
+          # (git-ignored); the :- default keeps Jenkins booting if it's unset.
+          - string:
+              scope: GLOBAL
+              id: "teams-jenkins-ga-webhook"
+              secret: "${TEAMS_WEBHOOK_URL:-unset}"
+              description: "Teams webhook - Deployment Jenkins_GA test channel"
           - basicSSHUserPrivateKey:
               scope: GLOBAL
               id: "ssh-air-quality"

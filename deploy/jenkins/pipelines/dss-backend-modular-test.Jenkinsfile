@@ -19,6 +19,14 @@ pipeline {
         timeout(time: 30, unit: 'MINUTES')
         disableConcurrentBuilds()
     }
+    environment {
+        // Secret text credential holding the Teams "Deployment - Jenkins_GA"
+        // channel webhook URL. Never log ${TEAMS_WEBHOOK_URL} directly —
+        // Jenkins masks it in console output because it's bound via
+        // credentials(), but only office365ConnectorSend's webhookUrl param
+        // should ever reference it.
+        TEAMS_WEBHOOK_URL = credentials('teams-jenkins-ga-webhook')
+    }
     triggers {
         pollSCM('H/5 * * * *')
     }
@@ -59,7 +67,23 @@ pipeline {
         }
     }
     post {
-        success { echo "✅ dss-backend-modular-test deployed -> http://13.205.88.131:4000/" }
-        failure { echo "❌ dss-backend-modular-test deploy failed — check logs above" }
+        success {
+            echo "✅ dss-backend-modular-test deployed -> http://13.205.88.131:4000/"
+            office365ConnectorSend(
+                webhookUrl: env.TEAMS_WEBHOOK_URL,
+                status: 'Success',
+                color: '00FF00',
+                message: "✅ **${env.JOB_NAME}** build #${env.BUILD_NUMBER} succeeded — deployed to http://13.205.88.131:4000/ ([view build](${env.BUILD_URL}))"
+            )
+        }
+        failure {
+            echo "❌ dss-backend-modular-test deploy failed — check logs above"
+            office365ConnectorSend(
+                webhookUrl: env.TEAMS_WEBHOOK_URL,
+                status: 'Failure',
+                color: 'FF0000',
+                message: "❌ **${env.JOB_NAME}** build #${env.BUILD_NUMBER} failed ([view build](${env.BUILD_URL}))"
+            )
+        }
     }
 }

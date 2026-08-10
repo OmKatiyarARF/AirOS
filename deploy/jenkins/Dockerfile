@@ -16,9 +16,15 @@ RUN apt-get update && \
         nodejs \
         npm \
         openssh-client \
+        python3 \
+        python3-pip \
         shellcheck \
         yamllint \
     && rm -rf /var/lib/apt/lists/*
+
+# Python dependencies used by dss-backend-modular wind-interpolation tests.
+# Installed as root so python3 is usable by any build on the Jenkins agent.
+RUN pip3 install --break-system-packages --no-cache-dir numpy scipy shapely
 
 USER jenkins
 

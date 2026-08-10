@@ -42,6 +42,9 @@ services:
       - GITHUB_USER=${GITHUB_USER}
       # Second GitHub account/org (optional) — referenced by casc id "github-airawat"
       - GITHUB_AIRAWAT_USER=${GITHUB_AIRAWAT_USER:-}
+      # Teams webhook URL — referenced by casc id "teams-jenkins-ga-webhook".
+      # Set in .env (git-ignored); blank default keeps Jenkins booting without it.
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
       - REPO_NAME=${REPO_NAME:-}
       - DEPLOY_PATH=${DEPLOY_PATH:-}
       - DEPLOY_TYPE=${DEPLOY_TYPE:-}
