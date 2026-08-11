@@ -93,11 +93,26 @@ pipeline {
                 // logic for npm-test.log vs npm-ci.log. Strip ANSI color
                 // codes (Node/TypeORM logs are colored) so Teams shows plain
                 // readable text instead of escape-sequence garbage.
+                //
+                // tests/run-all.js always prints the FULL pass/fail roll call
+                // in a fixed suite order, so a passing test from a later
+                // suite can easily end up as the very last line even though
+                // an earlier suite failed — a blind `tail` then shows nothing
+                // useful (confirmed: build #51 only showed trailing ✓ lines,
+                // no sign of the actual Geography failure). Grep out just the
+                // failed lines (✗) plus the "Passed: X, Failed: Y" summary
+                // instead, and only fall back to a plain tail for logs that
+                // aren't in this ✓/✗ format (e.g. raw npm ci or SSH errors).
                 def logTail = sh(
                     script: '''
-                        { cat deploy.log 2>/dev/null || cat npm-test.log 2>/dev/null || cat npm-ci.log 2>/dev/null || echo "No captured log for this stage — check the Jenkins console."; } \
-                        | sed -r "s/\\x1B\\[[0-9;]*[a-zA-Z]//g" \
-                        | tail -n 25
+                        RAW=$(cat deploy.log 2>/dev/null || cat npm-test.log 2>/dev/null || cat npm-ci.log 2>/dev/null || echo "No captured log for this stage — check the Jenkins console.")
+                        CLEAN=$(printf '%s\\n' "$RAW" | sed -r "s/\\x1B\\[[0-9;]*[a-zA-Z]//g")
+                        MATCHES=$(printf '%s\\n' "$CLEAN" | grep -E "✗|Passed:")
+                        if [ -n "$MATCHES" ]; then
+                            printf '%s\\n' "$MATCHES" | head -n 40
+                        else
+                            printf '%s\\n' "$CLEAN" | tail -n 25
+                        fi
                     ''',
                     returnStdout: true
                 ).trim()
