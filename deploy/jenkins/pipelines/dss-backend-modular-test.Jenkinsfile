@@ -33,6 +33,11 @@ pipeline {
     stages {
         stage('Checkout (change detection)') {
             steps {
+                // Workspace persists across builds (no cleanWs() here) so a
+                // leftover log from a PAST build could otherwise be quoted by
+                // a future unrelated failure notification below. Clear them
+                // every run before anything can fail.
+                sh 'rm -f npm-ci.log npm-test.log deploy.log'
                 checkout([$class: 'GitSCM',
                     branches: [[name: '*/dev']],
                     userRemoteConfigs: [[
@@ -45,22 +50,26 @@ pipeline {
             steps {
                 // Fix 2 — tests must pass before the test-env deploy is allowed.
                 // Same SQLite/in-memory suite as prod; exits non-zero on failure
-                // and stops the pipeline before the SSH deploy below.
-                sh '''
-                    set -e
-                    npm ci
-                    npm test
+                // and stops the pipeline before the SSH deploy below. Output is
+                // also teed to a file (in addition to the normal live Jenkins
+                // console) so the failure notification below can quote the
+                // last few lines of the actual error in Teams. pipefail makes
+                // `set -e` see npm's real exit code through the tee pipe.
+                sh '''#!/bin/bash
+                    set -eo pipefail
+                    npm ci 2>&1 | tee npm-ci.log
+                    npm test 2>&1 | tee npm-test.log
                 '''
             }
         }
         stage('Deploy test backend (:4000)') {
             steps {
                 sshagent(credentials: ['ssh-air-quality']) {
-                    sh '''
-                        set -e
+                    sh '''#!/bin/bash
+                        set -eo pipefail
                         ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
                             ec2-user@13.205.88.131 \
-                            'bash /home/ec2-user/dss-backend-modular-test/deploy.sh dev'
+                            'bash /home/ec2-user/dss-backend-modular-test/deploy.sh dev' 2>&1 | tee deploy.log
                     '''
                 }
             }
@@ -77,13 +86,29 @@ pipeline {
             )
         }
         failure {
-            echo "❌ dss-backend-modular-test deploy failed — check logs above"
-            office365ConnectorSend(
-                webhookUrl: env.TEAMS_WEBHOOK_URL,
-                status: 'Failure',
-                color: 'FF0000',
-                message: "❌ **${env.JOB_NAME}** build #${env.BUILD_NUMBER} failed ([view build](${env.BUILD_URL}))"
-            )
+            script {
+                // Pick whichever log belongs to the stage that actually ran
+                // last — deploy.log only exists if Test (gate) already
+                // passed, so it wins over the (successful) test log; same
+                // logic for npm-test.log vs npm-ci.log. Strip ANSI color
+                // codes (Node/TypeORM logs are colored) so Teams shows plain
+                // readable text instead of escape-sequence garbage.
+                def logTail = sh(
+                    script: '''
+                        { cat deploy.log 2>/dev/null || cat npm-test.log 2>/dev/null || cat npm-ci.log 2>/dev/null || echo "No captured log for this stage — check the Jenkins console."; } \
+                        | sed -r "s/\\x1B\\[[0-9;]*[a-zA-Z]//g" \
+                        | tail -n 25
+                    ''',
+                    returnStdout: true
+                ).trim()
+                echo "❌ dss-backend-modular-test deploy failed — check logs above"
+                office365ConnectorSend(
+                    webhookUrl: env.TEAMS_WEBHOOK_URL,
+                    status: 'Failure',
+                    color: 'FF0000',
+                    message: "❌ **${env.JOB_NAME}** build #${env.BUILD_NUMBER} failed ([view build](${env.BUILD_URL}))\n\nLast lines of log:\n```\n${logTail}\n```"
+                )
+            }
         }
     }
 }
