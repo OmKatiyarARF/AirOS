@@ -21,6 +21,12 @@ pipeline-github-lib
 # UI
 blueocean
 
+# Notifications — provides the office365ConnectorSend step used by the deploy
+# pipelines to post build status to the Teams "Deployment - Jenkins_GA" channel
+# (webhook comes from the "teams-jenkins-ga-webhook" credential in
+# casc/jenkins.yaml). Plugin ids are case-sensitive: this one is capitalised.
+Office-365-Connector
+
 # Credentials
 credentials
 credentials-binding
