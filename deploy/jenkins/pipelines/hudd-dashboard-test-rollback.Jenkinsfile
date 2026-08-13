@@ -1,52 +1,26 @@
 // AirOS-owned rollback pipeline for hudd-dashboard TEST env (:8766).
 //
 // Standalone, MANUALLY-triggered Pipeline job (declared in repos.json via the
-// "pipeline_file" field, with "sandbox": false so it may read the deployment
-// job's build history through Jenkins' object model).
+// "pipeline_file" field).
 //
-// Rollback TARGET = the PREVIOUS successful build of the *deployment* pipeline
-// (multibranch job "hudd-dashboard", branch "dev") — the build that was live
-// before the current one. Read live from Jenkins' build history, so it is
-// never influenced by a rollback run: this is a separate job and does not
-// appear in the deploy job's history.
+// Rollback TARGET = the full commit SHA in .deploy/previous-sha under
+// DEPLOY_PATH on the test host, written by the Deploy stage of the
+// hudd-dashboard repo's own Jenkinsfile before it resets HEAD.
 //
 // hudd-dashboard has no Docker image to re-tag — the remote script instead
-// checks out that build's git commit directly, rebuilds, and restarts the
-// PM2 test process. CODE ONLY: no database/Prisma migration is reversed.
+// checks out that commit directly, rebuilds, and restarts the PM2 test
+// process. CODE ONLY: no database/Prisma migration is reversed.
+//
+// This used to derive the target by walking Jenkins' own build history with an
+// @NonCPS helper (Jenkins.get().getItemByFullName(...), job.getBuilds(), ...).
+// That coupled rollback to Jenkins' retained build records — which expire under
+// the 20-build logRotator and vanish entirely if jenkins_home is lost — and it
+// only worked in a non-sandboxed pipeline, which "Pipeline script from SCM"
+// cannot provide. Reading the deploy host's own record removes both problems:
+// the source of truth now sits next to the thing being rolled back.
 //
 // Recreated on restart by init.groovy.d/create-jobs-from-json.groovy (reads
 // this file's content via the "pipeline_file" field in repos.json).
-
-import jenkins.model.Jenkins
-import hudson.model.Result
-import hudson.plugins.git.util.BuildData
-import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject
-
-// Git SHA of the Nth-from-latest DISTINCT successful build of a deploy job.
-//   skip = 0 -> latest successful deploy (currently live)
-//   skip = 1 -> the deploy before it (the rollback target)
-// For a multibranch deploy job, `branchName` selects the branch child.
-// @NonCPS because it walks Jenkins' run/build model — requires a trusted
-// (non-sandboxed) pipeline, hence "sandbox": false in repos.json.
-@NonCPS
-String successfulDeploySha(String jobFullName, String branchName, int skip) {
-    def item = Jenkins.get().getItemByFullName(jobFullName)
-    if (item == null) { return null }
-    def job = item
-    if (item instanceof WorkflowMultiBranchProject) {
-        def kids = item.getItems()
-        job = kids.find { it.name == branchName } ?: (kids.size() == 1 ? kids[0] : null)
-    }
-    if (job == null) { return null }
-    def shas = []
-    for (b in job.getBuilds()) {                       // most-recent-first
-        if (b.getResult() != Result.SUCCESS) { continue }
-        def bd = b.getAction(BuildData)
-        def sha = bd?.getLastBuiltRevision()?.getSha1String()
-        if (sha && (shas.isEmpty() || shas[-1] != sha)) { shas << sha }   // dedupe consecutive
-    }
-    return (shas.size() > skip) ? shas[skip] : null
-}
 
 pipeline {
     agent any
@@ -61,23 +35,49 @@ pipeline {
         DEPLOY_HOST = "${env.DEPLOY_HOST ?: '13.203.18.97'}"
         DEPLOY_USER = "${env.DEPLOY_USER ?: 'ec2-user'}"
         DEPLOY_SSH_CREDENTIAL = "${env.DEPLOY_SSH_CREDENTIAL ?: 'ssh-product-dev'}"
-        // The deployment pipeline this rollback shadows (multibranch, dev branch).
-        DEPLOY_JOB    = 'hudd-dashboard'
-        DEPLOY_BRANCH = 'dev'
+        // Checkout the deploy resets and the rollback script re-checks-out.
+        // Must match DEPLOY_PATH in the hudd-dashboard repo's Jenkinsfile.
+        DEPLOY_PATH = "${env.DEPLOY_PATH ?: '/home/ec2-user/dev/hudd-dashboard'}"
     }
     stages {
         stage('Resolve rollback target (previous successful deploy)') {
             steps {
-                script {
-                    def live = successfulDeploySha(env.DEPLOY_JOB, env.DEPLOY_BRANCH, 0)?.take(7)
-                    def prev = successfulDeploySha(env.DEPLOY_JOB, env.DEPLOY_BRANCH, 1)
-                    if (!prev) {
-                        error("No previous successful build of ${env.DEPLOY_JOB} (${env.DEPLOY_BRANCH}) to roll back to. Need at least two distinct successful deploys.")
+                sshagent(credentials: [DEPLOY_SSH_CREDENTIAL]) {
+                    script {
+                        // Read both records in one SSH round trip. Missing files
+                        // print as empty lines rather than failing, so the checks
+                        // below can explain what is actually wrong.
+                        def records = sh(
+                            returnStdout: true,
+                            script: '''
+                                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                                    "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                                    "cat '${DEPLOY_PATH}/.deploy/last-sha' 2>/dev/null; \
+                                     echo; \
+                                     cat '${DEPLOY_PATH}/.deploy/previous-sha' 2>/dev/null; \
+                                     echo"
+                            '''
+                        ).trim().split('\n', -1).collect { it.trim() }
+
+                        def live = records.size() > 0 ? records[0] : ''
+                        def prev = records.size() > 1 ? records[1] : ''
+
+                        if (!prev) {
+                            error("No ${env.DEPLOY_PATH}/.deploy/previous-sha on ${env.DEPLOY_HOST} — nothing recorded to roll back to. The hudd-dashboard deploy must have run at least twice, on two different commits, since SHA recording was added to its Jenkinsfile.")
+                        }
+                        // The deploy only advances previous-sha when the commit
+                        // actually changes, so equal records mean every recorded
+                        // deploy was the same commit. Rolling back would silently
+                        // redeploy what is already live.
+                        if (prev == live) {
+                            error("previous-sha (${prev.take(7)}) matches the live deploy — every recorded deploy is the same commit, so there is nothing to roll back to.")
+                        }
+
+                        env.TARGET_SHA = prev
+                        echo "Deploy records read from : ${env.DEPLOY_USER}@${env.DEPLOY_HOST}:${env.DEPLOY_PATH}/.deploy/"
+                        echo "Currently-live commit    : ${live.take(7)}"
+                        echo "Rolling TEST back to     : ${prev.take(7)}"
                     }
-                    env.TARGET_SHA = prev
-                    echo "Deployment pipeline: ${env.DEPLOY_JOB} (${env.DEPLOY_BRANCH})"
-                    echo "Currently-live deploy build : ${live}"
-                    echo "Rolling TEST back to previous : ${env.TARGET_SHA.take(7)}"
                 }
             }
         }

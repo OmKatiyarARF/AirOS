@@ -64,12 +64,29 @@ pipeline {
         }
         stage('Deploy test backend (:4000)') {
             steps {
+                // The deploy script is AirOS-owned. Fetch it into a subdirectory
+                // because the workspace root holds the app checkout that the
+                // test gate above needs.
+                dir('.airos') {
+                    checkout([$class: 'GitSCM',
+                        branches: [[name: '*/main']],
+                        userRemoteConfigs: [[
+                            url: 'https://github.com/OmKatiyarARF/AirOS.git',
+                            credentialsId: 'github-creds']]])
+                }
                 sshagent(credentials: ['ssh-air-quality']) {
+                    // Piped over SSH stdin instead of invoking a copy kept on
+                    // the host (/home/ec2-user/dss-backend-modular-test/deploy.sh).
+                    // That copy lived in a git repo with no remote and had been
+                    // edited in place, so what actually deployed was invisible to
+                    // review; streaming the script means the host always runs
+                    // exactly what is committed here.
                     sh '''#!/bin/bash
                         set -eo pipefail
                         ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
                             ec2-user@13.205.88.131 \
-                            'bash /home/ec2-user/dss-backend-modular-test/deploy.sh dev' 2>&1 | tee deploy.log
+                            'bash -s -- dev' \
+                            < .airos/deploy/deploy-dss-backend-test.sh 2>&1 | tee deploy.log
                     '''
                 }
             }

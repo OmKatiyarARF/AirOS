@@ -38,7 +38,7 @@
     "git_url": "https://github.com/airawatiitk/dss-backend-modular.git",
     "branch": "dev",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/dss-backend-modular-test.Jenkinsfile",
+    "pipeline_file": "deploy/jenkins/pipelines/dss-backend-modular-test.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
@@ -67,7 +67,7 @@
     "git_url": "https://github.com/airawatiitk/dss-frontend.git",
     "branch": "dev-fe",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/dss-frontend-test.Jenkinsfile",
+    "pipeline_file": "deploy/jenkins/pipelines/dss-frontend-test.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
@@ -123,7 +123,7 @@
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
     "branch": "main",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/AirOS-rollback.Jenkinsfile",
+    "pipeline_file": "deploy/jenkins/pipelines/AirOS-rollback.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "172.31.30.135",
@@ -137,8 +137,7 @@
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
     "branch": "main",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/dss-backend-modular-rollback.Jenkinsfile",
-    "sandbox": false,
+    "pipeline_file": "deploy/jenkins/pipelines/dss-backend-modular-rollback.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
@@ -152,8 +151,7 @@
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
     "branch": "main",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/dss-backend-modular-test-rollback.Jenkinsfile",
-    "sandbox": false,
+    "pipeline_file": "deploy/jenkins/pipelines/dss-backend-modular-test-rollback.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "13.205.88.131",
@@ -167,8 +165,7 @@
     "git_url": "https://github.com/OmKatiyarARF/AirOS.git",
     "branch": "main",
     "credentials_id": "github-creds",
-    "pipeline_file": "pipelines/hudd-dashboard-test-rollback.Jenkinsfile",
-    "sandbox": false,
+    "pipeline_file": "deploy/jenkins/pipelines/hudd-dashboard-test-rollback.Jenkinsfile",
     "deploy": {
       "type": "remote",
       "host": "13.203.18.97",

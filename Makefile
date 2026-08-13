@@ -17,11 +17,20 @@ BACKUP_DIR       := ./backups
 BACKUP_DATE      := $(shell date +%Y%m%d_%H%M%S)
 
 # ──── Jenkins Configuration (override for local dev vs production) ─────────
-# By default, these point to the production EC2 paths.
+# By default, these match the defaults baked into jenkins-compose.yaml.
 # For local development where /home/ec2-user doesn't exist, override:
-#   make jenkins-up JENKINS_REPOS_VOLUME=/home/om-katiyar/arf JENKINS_SSH_VOLUME=/home/om-katiyar/.ssh
+#   make jenkins-up JENKINS_REPOS_VOLUME=/home/om-katiyar/arf
 JENKINS_REPOS_VOLUME ?= /home/ec2-user
-JENKINS_SSH_VOLUME   ?= /home/ec2-user/.ssh
+# Mounted at /var/jenkins_home/.ssh. This MUST be the secrets-runtime folder
+# that security/fetch-secrets.sh regenerates from AWS Secrets Manager — it is
+# the only place the deploy *.pem keys exist. It used to default to the host's
+# ~/.ssh, which holds no .pem files at all, so every `make jenkins-up` silently
+# started Jenkins with empty SSH credentials: ssh-agent loaded no identity and
+# every remote deploy/rollback died with "Permission denied (publickey)".
+# Path is relative to deploy/jenkins/ (Compose resolves it against the
+# compose file's directory), matching the ${SSH_VOLUME:-./secrets-runtime}
+# default in jenkins-compose.yaml.
+JENKINS_SSH_VOLUME   ?= ./secrets-runtime
 
 # ──── Help (default) ────────────────────────────────────────────────────────
 help:
@@ -78,10 +87,14 @@ logs-postgres:
 
 # ──── Jenkins ──────────────────────────────────────────────────────────────
 
+# Delegates to deploy/jenkins/start.sh rather than calling docker compose
+# directly, so secrets are always re-fetched from AWS Secrets Manager first.
+# Going straight to `docker compose up` skips that refresh and starts Jenkins
+# against whatever (or nothing) is left in secrets-runtime/.
 jenkins-up:
 	@echo "$(GREEN)Starting Jenkins CI/CD...$(RESET)"
 	@export REPOS_VOLUME="$(JENKINS_REPOS_VOLUME)" SSH_VOLUME="$(JENKINS_SSH_VOLUME)"; \
-	 cd deploy/jenkins && docker compose -f jenkins-compose.yaml up -d --build
+	 ./deploy/jenkins/start.sh
 	@echo "$(GREEN)Jenkins started at http://localhost:90$(RESET)"
 	@echo "$(YELLOW)Note: Jenkins UI is also exposed directly on port 9080$(RESET)"
 

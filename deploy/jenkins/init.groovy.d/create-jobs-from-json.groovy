@@ -9,9 +9,10 @@ import org.jenkinsci.plugins.workflow.multibranch.WorkflowBranchProjectFactory
 import com.cloudbees.hudson.plugins.folder.computed.PeriodicFolderTrigger
 import com.cloudbees.hudson.plugins.folder.computed.DefaultOrphanedItemStrategy
 import org.jenkinsci.plugins.workflow.job.WorkflowJob
-import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition
-import org.jenkinsci.plugins.scriptsecurity.scripts.ScriptApproval
-import org.jenkinsci.plugins.scriptsecurity.scripts.languages.GroovyLanguage
+import org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition
+import hudson.plugins.git.GitSCM
+import hudson.plugins.git.BranchSpec
+import hudson.plugins.git.UserRemoteConfig
 
 // ---------------------------------------------------------------------------
 // Reads /var/jenkins_home/repos.json and creates/updates one Pipeline job per
@@ -30,16 +31,21 @@ import org.jenkinsci.plugins.scriptsecurity.scripts.languages.GroovyLanguage
 //                    the standalone script itself decides what it checks out
 //   credentials_id - Jenkins credential id for this repo's GitHub account
 //                    (default "github-creds"); must match an id in casc/jenkins.yaml
-//   pipeline_file  - path (relative to /var/jenkins_home/) to an AirOS-owned
-//                    Jenkinsfile. When set, creates a STANDALONE Pipeline job
-//                    running that script instead of a multibranch job reading
-//                    the target repo's own Jenkinsfile. Use this for jobs that
-//                    must not touch the app repo (e.g. isolated test deploys).
-//   sandbox        - (pipeline_file entries only) run the standalone pipeline
-//                    in the Groovy sandbox. Default true. Set false ONLY for
-//                    trusted AirOS-owned pipelines that must read Jenkins
-//                    internals (e.g. the rollback jobs, which walk the deploy
-//                    job's build history to find the previous successful SHA).
+//   pipeline_file  - path, relative to the ROOT OF THE AirOS REPO, of an
+//                    AirOS-owned Jenkinsfile (e.g.
+//                    "deploy/jenkins/pipelines/dss-frontend-test.Jenkinsfile").
+//                    When set, creates a STANDALONE Pipeline job whose
+//                    definition is "Pipeline script from SCM": Jenkins fetches
+//                    that file from the AirOS repo on every build, instead of
+//                    a multibranch job reading the target repo's own
+//                    Jenkinsfile. Use this for jobs that must not touch the app
+//                    repo (e.g. isolated test deploys).
+//   sandbox        - OBSOLETE, ignored. Kept only so older repos.json entries
+//                    still parse. A "Pipeline script from SCM" definition has
+//                    no sandbox flag: Jenkins ALWAYS runs SCM-sourced pipelines
+//                    inside the Groovy sandbox. No pipeline needs an escape
+//                    hatch any more — the rollback jobs read the deploy host's
+//                    .deploy/*-sha records rather than Jenkins' build history.
 //   disabled       - true to skip creating a job for this repo
 //
 // Multibranch job sources are built with the Jenkins Java API (not
@@ -47,6 +53,15 @@ import org.jenkinsci.plugins.scriptsecurity.scripts.languages.GroovyLanguage
 // RegexSCMHeadFilterTrait that restricts discovery to exactly `branch`.
 // (Hand-written XML silently drops the source when the filter trait is
 // present, so the API is used.)
+//
+// Standalone (pipeline_file) jobs point at the AirOS repo itself — its
+// git_url / branch / credentials_id are read from the "AirOS" entry in
+// repos.json, so there is one source of truth for them. Earlier revisions
+// inlined the script text (CpsFlowDefinition) read from the ./pipelines bind
+// mount; that snapshot only refreshed on a Jenkins rebuild, so editing a
+// pipeline in git left the running job on the stale copy and a `git revert`
+// of a bad pipeline had no effect until the next restart. Fetching from SCM
+// per build removes that second copy entirely.
 // ---------------------------------------------------------------------------
 
 def jsonFile = '/var/jenkins_home/repos.json'
@@ -112,18 +127,23 @@ def triggerScan = { job ->
 }
 
 /**
- * Create/update a standalone Pipeline job whose definition is the literal
- * content of an AirOS-owned Jenkinsfile (repo.pipeline_file). Used for jobs
- * that must not modify the target app repo — the script itself is
- * self-contained (its own checkout + triggers), so unlike multibranch jobs
- * there is no SCM source to configure here.
+ * Create/update a standalone Pipeline job that reads an AirOS-owned
+ * Jenkinsfile (repo.pipeline_file) straight from the AirOS repo on every
+ * build. Used for jobs that must not modify the target app repo — the script
+ * is self-contained (its own checkout + triggers), so the only SCM configured
+ * here is AirOS itself, purely to fetch the pipeline definition.
  */
-def createStandaloneJob = { jenkinsRef, repo ->
+def createStandaloneJob = { jenkinsRef, repo, pipelineRepo ->
     def jobName = repo.name
-    def scriptFile = new File("/var/jenkins_home/${repo.pipeline_file}")
-    if (!scriptFile.exists()) {
-        println "Skipping ${jobName}: pipeline_file not found at ${scriptFile.path}"
-        return
+    def scriptPath = repo.pipeline_file
+
+    // Soft pre-flight check against the ./pipelines bind mount. Git is the
+    // authoritative source now, so a miss is only a warning — but it catches
+    // a fat-fingered scriptPath here at boot instead of at the next build.
+    def mounted = new File("/var/jenkins_home/${scriptPath.replaceFirst('^deploy/jenkins/', '')}")
+    if (!mounted.exists()) {
+        println "WARNING ${jobName}: '${scriptPath}' has no match under the ./pipelines mount " +
+                "(looked for ${mounted.path}). Check the path if builds fail to find the script."
     }
 
     def job = jenkinsRef.getItem(jobName)
@@ -132,34 +152,35 @@ def createStandaloneJob = { jenkinsRef, repo ->
         return
     }
     if (job == null) {
-        println "Creating standalone Pipeline job: ${jobName} (pipeline_file '${repo.pipeline_file}')"
+        println "Creating standalone Pipeline job: ${jobName} (SCM ${pipelineRepo.url} @ ${pipelineRepo.branch}, script '${scriptPath}')"
         job = jenkinsRef.createProject(WorkflowJob, jobName)
     } else {
-        println "Updating standalone Pipeline job: ${jobName} (pipeline_file '${repo.pipeline_file}')"
+        println "Updating standalone Pipeline job: ${jobName} (SCM ${pipelineRepo.url} @ ${pipelineRepo.branch}, script '${scriptPath}')"
     }
 
-    // Standalone jobs run sandboxed by default. A repos.json entry may set
-    // "sandbox": false to run the pipeline trusted — required by the rollback
-    // jobs, which read the deploy job's build history via Jenkins' object model
-    // (blocked in the sandbox).
-    def useSandbox = (repo.sandbox == null) ? true : (repo.sandbox as boolean)
-    job.setDescription("CI/CD for ${jobName} (standalone, branch '${repo.branch ?: 'n/a'}', sandbox=${useSandbox})")
-    job.setDefinition(new CpsFlowDefinition(scriptFile.text, useSandbox))
+    job.setDescription("CI/CD for ${jobName} (standalone, target branch '${repo.branch ?: 'n/a'}', pipeline from SCM: ${scriptPath})")
 
-    // A non-sandboxed (trusted) CpsFlowDefinition still refuses to RUN unless
-    // its exact script content has been through Script Approval — normally
-    // granted automatically when an admin saves a pipeline via the web UI,
-    // but creating the job programmatically here skips that step. Without
-    // this, every restart would recreate the job "successfully" yet every
-    // build would fail instantly with UnapprovedUsageException the moment it
-    // touched the @NonCPS helper — never actually running the rollback.
-    // Pre-approving the hash here (running as SYSTEM, so always trusted) is
-    // safe ONLY because pipeline_file scripts are AirOS-owned code reviewed
-    // and committed to this repo, not arbitrary user input.
-    if (!useSandbox) {
-        def hash = ScriptApproval.get().preapprove(scriptFile.text, GroovyLanguage.get())
-        println "Pre-approved trusted script for ${jobName} (hash ${hash.take(16)}...)"
-    }
+    def scm = new GitSCM(
+        [ new UserRemoteConfig(pipelineRepo.url, null, null, pipelineRepo.credentialsId) ],
+        [ new BranchSpec("*/${pipelineRepo.branch}") ],
+        null,   // browser
+        null,   // gitTool
+        []      // extensions
+    )
+
+    // Lightweight: fetch just this one file via the Git provider instead of
+    // cloning AirOS into a workspace. Also keeps the AirOS repo out of the
+    // job's polled SCMs, so the pollSCM trigger declared inside the test
+    // pipelines still watches only the app repo it checks out.
+    def definition = new CpsScmFlowDefinition(scm, scriptPath)
+    definition.setLightweight(true)
+
+    // Note there is no per-job sandbox switch to set here: CpsScmFlowDefinition
+    // always executes sandboxed, so the old "sandbox": false escape hatch (and
+    // the whole-script ScriptApproval.preapprove that went with it) no longer
+    // apply. What the @NonCPS rollback helpers need instead is the signature
+    // allow-list applied once at the bottom of this script.
+    job.setDefinition(definition)
 
     job.save()
     println "Job ready: ${jobName}"
@@ -210,6 +231,17 @@ def createMultibranchJob = { jenkinsRef, repo ->
 
 // Main loop -----------------------------------------------------------------
 
+// Where standalone jobs fetch their pipeline scripts from: the AirOS repo,
+// taken from its own repos.json entry so the URL/branch/credential are
+// declared exactly once. Falls back to literals if that entry is ever removed.
+def airosEntry = repos.find { it.name == 'AirOS' }
+def pipelineRepo = [
+    url          : airosEntry?.git_url ?: 'https://github.com/OmKatiyarARF/AirOS.git',
+    branch       : airosEntry?.branch ?: 'main',
+    credentialsId: airosEntry?.credentials_id ?: 'github-creds'
+]
+println "Standalone pipeline scripts source: ${pipelineRepo.url} @ ${pipelineRepo.branch} (creds '${pipelineRepo.credentialsId}')"
+
 repos.each { repo ->
     if (repo.disabled == true) {
         println "Skipping disabled repo: ${repo.name}"
@@ -217,11 +249,21 @@ repos.each { repo ->
     }
 
     if (repo.pipeline_file) {
-        createStandaloneJob(jenkins, repo)
+        createStandaloneJob(jenkins, repo, pipelineRepo)
     } else {
         createMultibranchJob(jenkins, repo)
     }
 }
+
+// No ScriptApproval work is needed here. Every "Pipeline script from SCM" job
+// runs inside the Groovy sandbox with no per-job opt-out, and the rollback
+// pipelines no longer reach into Jenkins' object model: they read the deploy
+// host's own .deploy/*-sha records over SSH instead of walking build history
+// with an @NonCPS helper. An earlier revision of this script had to allow-list
+// ~14 signatures (Jenkins.get, Job.getBuilds, HistoricalBuild.getResult, ...)
+// globally to keep those helpers running; removing the helpers removed the
+// need. If a pipeline ever needs a privileged call again, prefer moving that
+// logic to the deploy host over widening the sandbox for every pipeline.
 
 jenkins.save()
 println "Job creation complete."

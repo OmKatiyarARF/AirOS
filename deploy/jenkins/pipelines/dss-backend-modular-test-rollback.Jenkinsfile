@@ -1,48 +1,24 @@
 // AirOS-owned rollback pipeline for dss-backend-modular TEST env (:4000).
 //
 // Standalone, MANUALLY-triggered Pipeline job (declared in repos.json via the
-// "pipeline_file" field, with "sandbox": false so it may read the deployment
-// job's build history through Jenkins' object model).
+// "pipeline_file" field).
 //
-// Rollback TARGET = the PREVIOUS successful build of the *deployment* pipeline
-// (standalone job "dss-backend-modular-test", branch "dev") — the build that
-// was live before the current one. Read live from Jenkins' build history, so
-// it is never influenced by a rollback run. The remote script re-points the
-// dss-test app/worker at the permanent TEST-ONLY image
-// dss-backend-modular-app-test:<sha>. Prod (:3001) is never touched, and the
-// rollback is READ-ONLY (never writes .deploy/*-image-sha).
+// Rollback TARGET = the SHA in .deploy/previous-image-sha on the deploy host,
+// written by deploy-dss-backend-test.sh before it recreates the containers.
+// The remote script re-points the dss-test app/worker at the permanent
+// TEST-ONLY image dss-backend-modular-app-test:<sha>. Prod (:3001) is never
+// touched, and the rollback is READ-ONLY (never writes .deploy/*-image-sha),
+// so repeated rollbacks always resolve to the same target.
+//
+// This used to derive the target by walking Jenkins' own build history with an
+// @NonCPS helper (Jenkins.get().getItemByFullName(...), job.getBuilds(), ...).
+// That coupled rollback to Jenkins' retained build records — which expire under
+// the 20-build logRotator and vanish entirely if jenkins_home is lost — and it
+// only worked in a non-sandboxed pipeline, which "Pipeline script from SCM"
+// cannot provide. Reading the deploy host's own record removes both problems:
+// the source of truth now sits next to the thing being rolled back.
 //
 // Recreated on restart by init.groovy.d/create-jobs-from-json.groovy.
-
-import jenkins.model.Jenkins
-import hudson.model.Result
-import hudson.plugins.git.util.BuildData
-import org.jenkinsci.plugins.workflow.multibranch.WorkflowMultiBranchProject
-
-// Git SHA of the Nth-from-latest DISTINCT successful build of a deploy job.
-//   skip = 0 -> latest successful deploy (currently live)
-//   skip = 1 -> the deploy before it (the rollback target)
-// @NonCPS because it walks Jenkins' run/build model — requires a trusted
-// (non-sandboxed) pipeline, hence "sandbox": false in repos.json.
-@NonCPS
-String successfulDeploySha(String jobFullName, String branchName, int skip) {
-    def item = Jenkins.get().getItemByFullName(jobFullName)
-    if (item == null) { return null }
-    def job = item
-    if (item instanceof WorkflowMultiBranchProject) {
-        def kids = item.getItems()
-        job = kids.find { it.name == branchName } ?: (kids.size() == 1 ? kids[0] : null)
-    }
-    if (job == null) { return null }
-    def shas = []
-    for (b in job.getBuilds()) {                       // most-recent-first
-        if (b.getResult() != Result.SUCCESS) { continue }
-        def bd = b.getAction(BuildData)
-        def sha = bd?.getLastBuiltRevision()?.getSha1String()
-        if (sha && (shas.isEmpty() || shas[-1] != sha)) { shas << sha }   // dedupe consecutive
-    }
-    return (shas.size() > skip) ? shas[skip] : null
-}
 
 pipeline {
     agent any
@@ -57,23 +33,49 @@ pipeline {
         DEPLOY_HOST = "${env.DEPLOY_HOST ?: '13.205.88.131'}"
         DEPLOY_USER = "${env.DEPLOY_USER ?: 'ec2-user'}"
         DEPLOY_SSH_CREDENTIAL = "${env.DEPLOY_SSH_CREDENTIAL ?: 'ssh-air-quality'}"
-        // The deployment pipeline this rollback shadows (standalone dev job).
-        DEPLOY_JOB    = 'dss-backend-modular-test'
-        DEPLOY_BRANCH = 'dev'
+        // Host directory holding the deploy records written by
+        // deploy-dss-backend-test.sh (its $STATE). Not the checkout dir.
+        DEPLOY_STATE = "${env.DEPLOY_STATE ?: '/home/ec2-user/dss-backend-modular-test'}"
     }
     stages {
         stage('Resolve rollback target (previous successful deploy)') {
             steps {
-                script {
-                    def live = successfulDeploySha(env.DEPLOY_JOB, env.DEPLOY_BRANCH, 0)?.take(7)
-                    def prev = successfulDeploySha(env.DEPLOY_JOB, env.DEPLOY_BRANCH, 1)
-                    if (!prev) {
-                        error("No previous successful build of ${env.DEPLOY_JOB} (${env.DEPLOY_BRANCH}) to roll back to. Need at least two distinct successful deploys.")
+                sshagent(credentials: [DEPLOY_SSH_CREDENTIAL]) {
+                    script {
+                        // Read both records in one SSH round trip. Missing files
+                        // print as empty lines rather than failing, so the checks
+                        // below can explain what is actually wrong.
+                        def records = sh(
+                            returnStdout: true,
+                            script: '''
+                                ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
+                                    "${DEPLOY_USER}@${DEPLOY_HOST}" \
+                                    "cat '${DEPLOY_STATE}/.deploy/last-image-sha' 2>/dev/null; \
+                                     echo; \
+                                     cat '${DEPLOY_STATE}/.deploy/previous-image-sha' 2>/dev/null; \
+                                     echo"
+                            '''
+                        ).trim().split('\n', -1).collect { it.trim() }
+
+                        def live = records.size() > 0 ? records[0] : ''
+                        def prev = records.size() > 1 ? records[1] : ''
+
+                        if (!prev) {
+                            error("No ${DEPLOY_STATE}/.deploy/previous-image-sha on ${env.DEPLOY_HOST} — nothing recorded to roll back to. A deploy must have run at least twice, on two different commits.")
+                        }
+                        // The deploy script only advances previous-image-sha when
+                        // the commit actually changes, so equal records mean every
+                        // retained deploy was the same commit. Rolling back would
+                        // silently redeploy what is already live.
+                        if (prev == live) {
+                            error("previous-image-sha (${prev}) matches the live deploy — every recorded deploy is the same commit, so there is nothing to roll back to.")
+                        }
+
+                        env.TARGET_SHA = prev
+                        echo "Deploy records read from : ${env.DEPLOY_USER}@${env.DEPLOY_HOST}:${DEPLOY_STATE}/.deploy/"
+                        echo "Currently-live image SHA : ${live}"
+                        echo "Rolling TEST back to     : ${env.TARGET_SHA}"
                     }
-                    env.TARGET_SHA = prev.take(7)
-                    echo "Deployment pipeline: ${env.DEPLOY_JOB} (${env.DEPLOY_BRANCH})"
-                    echo "Currently-live deploy build : ${live}"
-                    echo "Rolling TEST back to previous : ${env.TARGET_SHA}"
                 }
             }
         }
