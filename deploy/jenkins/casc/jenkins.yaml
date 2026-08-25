@@ -28,7 +28,7 @@ jenkins:
 # Where Jenkins writes build data on disk
 unclassified:
   location:
-    url: "https://jenkins.airawat.org/"
+    url: "http://13.205.13.220:90/"
     adminAddress: "admin@airawat.org"
 
   timestamper:
