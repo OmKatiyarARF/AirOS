@@ -93,7 +93,7 @@ http://localhost:9081  (or the server\'s public IP/domain)
 
 In Docker networks, Keycloak is reachable at:
 ```
-http://airos-keycloak:8080  (from within the `airos-auth` network)
+http://AirOS-keycloak:8080  (from within the `AirOS-auth` network)
 ```
 
 **Do not hardcode Keycloak URLs** in app configs. Use environment variables like `KEYCLOAK_URL` so the same app works in dev, staging, and production.
@@ -131,7 +131,7 @@ Backups are saved to `./backups/` with timestamps. Old backups are NOT auto-dele
 make restore-list
 
 # Restore a specific backup
-zcat backups/keycloak_YYYYMMDD_HHMMSS.sql.gz | docker exec -i airos-keycloak-postgres psql -U keycloak keycloak
+zcat backups/keycloak_YYYYMMDD_HHMMSS.sql.gz | docker exec -i AirOS-keycloak-postgres psql -U keycloak keycloak
 ```
 
 ## Security

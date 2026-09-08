@@ -38,7 +38,7 @@ MAX_RETRIES=24
 RETRY_DELAY=5
 HEALTHY=0
 for i in $(seq 1 "$MAX_RETRIES"); do
-    if docker run --rm --network "container:airos-keycloak" \
+    if docker run --rm --network "container:AirOS-keycloak" \
            curlimages/curl:8.11.0 \
            -sf http://localhost:9000/health/ready >/dev/null 2>&1; then
         echo "Keycloak is healthy after rollback."

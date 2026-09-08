@@ -79,11 +79,11 @@ logs:
 
 logs-keycloak:
 	@echo "$(YELLOW)Keycloak logs:$(RESET)"
-	docker logs -f airos-keycloak
+	docker logs -f AirOS-keycloak
 
 logs-postgres:
 	@echo "$(YELLOW)PostgreSQL logs:$(RESET)"
-	docker logs -f airos-keycloak-postgres
+	docker logs -f AirOS-keycloak-postgres
 
 # ──── Jenkins ──────────────────────────────────────────────────────────────
 
@@ -114,7 +114,7 @@ jenkins-restart: jenkins-down jenkins-up
 backup:
 	@mkdir -p $(BACKUP_DIR)
 	@echo "$(YELLOW)Backing up Keycloak database...$(RESET)"
-	@docker exec airos-keycloak-postgres pg_dump -U keycloak keycloak 2>/dev/null | gzip > $(BACKUP_DIR)/keycloak_$(BACKUP_DATE).sql.gz
+	@docker exec AirOS-keycloak-postgres pg_dump -U keycloak keycloak 2>/dev/null | gzip > $(BACKUP_DIR)/keycloak_$(BACKUP_DATE).sql.gz
 	@ls -lh $(BACKUP_DIR)/keycloak_$(BACKUP_DATE).sql.gz && echo "$(GREEN)Backup completed.$(RESET)"
 
 restore-list:
@@ -126,7 +126,7 @@ restore-list:
 status:
 	@echo "$(GREEN)AirOS Platform Status$(RESET)"
 	@echo "========================"
-	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=airos-"
+	@docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=AirOS-"
 
 keycloak-health:
 	@echo "$(YELLOW)Checking Keycloak health...$(RESET)"

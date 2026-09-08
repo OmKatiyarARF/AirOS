@@ -41,7 +41,7 @@ pipeline {
                         echo "Checking Docker on the deploy target (${DEPLOY_USER}@${DEPLOY_HOST}) over SSH..."
                         ssh -o StrictHostKeyChecking=no -o ConnectTimeout=20 \
                             "${DEPLOY_USER}@${DEPLOY_HOST}" \
-                            'set -e; docker --version && docker compose version && (docker network inspect airos-auth >/dev/null 2>&1 || docker network create airos-auth) && echo "pre-deploy OK"'
+                            'set -e; docker --version && docker compose version && (docker network inspect AirOS-auth >/dev/null 2>&1 || docker network create AirOS-auth) && echo "pre-deploy OK"'
                     '''
                 }
             }
