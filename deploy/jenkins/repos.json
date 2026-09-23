@@ -49,21 +49,6 @@
     }
   },
   {
-    "name": "dss-backend-modular-devops-monitoring",
-    "git_url": "https://github.com/airawatiitk/dss-backend-modular.git",
-    "branch": "feature/devops-monitoring",
-    "credentials_id": "github-creds",
-    "pipeline_file": "deploy/jenkins/pipelines/dss-backend-modular-devops-monitoring.Jenkinsfile",
-    "deploy": {
-      "type": "remote",
-      "host": "13.205.88.131",
-      "user": "ec2-user",
-      "path": "/home/ec2-user/dss-backend-modular-devops-monitoring",
-      "port": 4004,
-      "ssh_key": {"type": "file", "path": "/var/jenkins_home/.ssh/air-quality.pem"}
-    }
-  },
-  {
     "name": "dss-frontend",
     "git_url": "https://github.com/airawatiitk/dss-frontend.git",
     "branch": "master",
